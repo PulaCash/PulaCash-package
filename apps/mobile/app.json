@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "PulaCash",
+    "slug": "pulacash",
+    "scheme": "pulacash",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "resizeMode": "cover",
+      "backgroundColor": "#075DFF"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "bw.pulacash.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "PulaCash uses the camera to upload a student ID card for verification.",
+        "NSPhotoLibraryUsageDescription": "PulaCash uses your library only when you choose a student ID image to upload."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "bw.pulacash.app"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {}
+  }
+}

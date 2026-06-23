@@ -1,0 +1,30 @@
+{
+  "name": "pulacash",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PulaCash MVP: iOS-first student microloan platform for Botswana university students.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @pulacash/shared && npm run build --workspace @pulacash/api",
+    "dev": "npm run dev --workspace @pulacash/api",
+    "dev:api": "npm run dev --workspace @pulacash/api",
+    "dev:mobile": "npm run start --workspace @pulacash/mobile",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "overrides": {
+    "react-native-reanimated": "4.3.1",
+    "react-native-worklets": "0.8.3"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "devDependencies": {
+    "react-native-reanimated": "4.3.1",
+    "react-native-worklets": "0.8.3"
+  }
+}

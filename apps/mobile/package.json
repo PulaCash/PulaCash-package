@@ -1,0 +1,51 @@
+{
+  "name": "@pulacash/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^15.0.2",
+    "@hookform/resolvers": "^3.10.0",
+    "@pulacash/shared": "file:../../packages/shared",
+    "@tanstack/react-query": "^5.85.5",
+    "expo": "~56.0.0",
+    "expo-blur": "latest",
+    "expo-document-picker": "latest",
+    "expo-glass-effect": "~56.0.4",
+    "expo-haptics": "latest",
+    "expo-image-picker": "latest",
+    "expo-linear-gradient": "latest",
+    "expo-linking": "~56.0.14",
+    "expo-router": "~56.2.10",
+    "expo-secure-store": "latest",
+    "expo-status-bar": "latest",
+    "lucide-react-native": "latest",
+    "nativewind": "^4.1.23",
+    "react": "19.2.3",
+    "react-dom": "^19.2.3",
+    "react-hook-form": "^7.62.0",
+    "react-native": "0.85.3",
+    "react-native-reanimated": "4.3.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "latest",
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.8.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.0",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~6.0.3",
+    "vitest": "^2.1.9"
+  }
+}

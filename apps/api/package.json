@@ -1,0 +1,44 @@
+{
+  "name": "@pulacash/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "lint": "tsc --noEmit",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:pg:generate": "drizzle-kit generate --config drizzle.config.pg.ts",
+    "db:pg:migrate": "drizzle-kit migrate --config drizzle.config.pg.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/rate-limit": "^10.3.0",
+    "@pulacash/shared": "file:../../packages/shared",
+    "@supabase/supabase-js": "^2.56.0",
+    "@upstash/ratelimit": "^2.0.5",
+    "@upstash/redis": "^1.35.3",
+    "better-sqlite3": "^11.8.1",
+    "dotenv": "^16.6.1",
+    "drizzle-orm": "^0.44.4",
+    "fastify": "^5.5.0",
+    "pino": "^9.9.0",
+    "postgres": "^3.4.5",
+    "resend": "^4.7.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.17.1",
+    "drizzle-kit": "^0.31.4",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.9.2",
+    "vitest": "^2.1.9"
+  }
+}
