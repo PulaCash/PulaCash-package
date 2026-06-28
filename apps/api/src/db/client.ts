@@ -106,6 +106,20 @@ CREATE TABLE IF NOT EXISTS payments (
   settled_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'general',
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feedback_votes (
+  feedback_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  PRIMARY KEY (feedback_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   actor_id TEXT NOT NULL,

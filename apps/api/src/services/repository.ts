@@ -4,6 +4,9 @@ import {
   BlacklistStudentInput,
   Dashboard,
   defaultLoanLimits,
+  Feedback,
+  FeedbackCategory,
+  FeedbackCreateInput,
   installmentSchedule,
   installmentTermDays,
   Loan,
@@ -61,6 +64,14 @@ type AuditLog = {
   createdAt: string;
 };
 
+type FeedbackRecord = {
+  id: string;
+  userId: string;
+  category: FeedbackCategory;
+  message: string;
+  createdAt: string;
+};
+
 const now = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 const id = () => crypto.randomUUID();
@@ -96,6 +107,8 @@ export class PulaCashRepository {
   private scores = new Map<string, ReliabilityScore>();
   private payments = new Map<string, Payment>();
   private paymentsByRef = new Map<string, string>();
+  private feedback = new Map<string, FeedbackRecord>();
+  private feedbackVotes = new Map<string, Set<string>>();
   private auditLogs: AuditLog[] = [];
   // Ephemeral email-verification + password-reset codes (userId -> code + expiry +
   // attempts). Short-lived by nature, so not persisted across restarts.
@@ -918,6 +931,77 @@ export class PulaCashRepository {
     return next;
   }
 
+  // --- Feedback board ---
+
+  createFeedback(user: User, input: FeedbackCreateInput): Feedback {
+    const record: FeedbackRecord = {
+      id: id(),
+      userId: user.id,
+      category: input.category,
+      message: input.message,
+      createdAt: now()
+    };
+    this.feedback.set(record.id, record);
+    this.feedbackVotes.set(record.id, new Set());
+    this.persistFeedback(record);
+    return this.feedbackView(record, user);
+  }
+
+  listFeedback(user: User): Feedback[] {
+    return [...this.feedback.values()]
+      .map((record) => this.feedbackView(record, user))
+      .sort((a, b) => b.voteCount - a.voteCount || b.createdAt.localeCompare(a.createdAt));
+  }
+
+  toggleFeedbackVote(user: User, feedbackId: string): Feedback {
+    const record = this.feedback.get(feedbackId);
+    if (!record) throw new RepositoryError(404, "Feedback not found.");
+    const votes = this.feedbackVotes.get(feedbackId) ?? new Set<string>();
+    if (votes.has(user.id)) {
+      votes.delete(user.id);
+      this.db.prepare("DELETE FROM feedback_votes WHERE feedback_id = ? AND user_id = ?").run(feedbackId, user.id);
+    } else {
+      votes.add(user.id);
+      this.db.prepare("INSERT OR IGNORE INTO feedback_votes (feedback_id, user_id) VALUES (?, ?)").run(feedbackId, user.id);
+    }
+    this.feedbackVotes.set(feedbackId, votes);
+    return this.feedbackView(record, user);
+  }
+
+  deleteFeedback(user: User, feedbackId: string) {
+    const record = this.feedback.get(feedbackId);
+    if (!record) throw new RepositoryError(404, "Feedback not found.");
+    // Only the author (or an admin) may delete a post.
+    if (record.userId !== user.id && user.role !== "admin") throw new RepositoryError(403, "Not allowed.");
+    this.feedback.delete(feedbackId);
+    this.feedbackVotes.delete(feedbackId);
+    this.db.prepare("DELETE FROM feedback WHERE id = ?").run(feedbackId);
+    this.db.prepare("DELETE FROM feedback_votes WHERE feedback_id = ?").run(feedbackId);
+    return { ok: true };
+  }
+
+  private feedbackView(record: FeedbackRecord, viewer: User): Feedback {
+    const votes = this.feedbackVotes.get(record.id) ?? new Set<string>();
+    const author = this.users.get(record.userId);
+    return {
+      id: record.id,
+      category: record.category,
+      message: record.message,
+      // First name only — never expose another user's full name, email, or id.
+      authorName: author ? firstName(author.fullName) : "Student",
+      createdAt: record.createdAt,
+      voteCount: votes.size,
+      hasVoted: votes.has(viewer.id),
+      isMine: record.userId === viewer.id
+    };
+  }
+
+  private persistFeedback(record: FeedbackRecord) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO feedback (id, user_id, category, message, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(record.id, record.userId, record.category, record.message, record.createdAt);
+  }
+
   private studentSummary(studentId: string) {
     const student = this.users.get(studentId);
     if (!student) throw new RepositoryError(404, "Student not found.");
@@ -1238,6 +1322,21 @@ export class PulaCashRepository {
         lateRepayments: row.late_repayments
       });
     }
+    for (const row of this.db.prepare("SELECT * FROM feedback").all() as any[]) {
+      this.feedback.set(row.id, {
+        id: row.id,
+        userId: row.user_id,
+        category: row.category as FeedbackCategory,
+        message: row.message,
+        createdAt: row.created_at
+      });
+      if (!this.feedbackVotes.has(row.id)) this.feedbackVotes.set(row.id, new Set());
+    }
+    for (const row of this.db.prepare("SELECT * FROM feedback_votes").all() as any[]) {
+      const set = this.feedbackVotes.get(row.feedback_id) ?? new Set<string>();
+      set.add(row.user_id);
+      this.feedbackVotes.set(row.feedback_id, set);
+    }
   }
 
   private async seed() {
@@ -1366,6 +1465,11 @@ function initials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+}
+
+/** First name only — used for the feedback board so no full name/email is exposed. */
+function firstName(name: string): string {
+  return name.split(" ").filter(Boolean)[0] ?? "Student";
 }
 
 /** Remaining free-tier loans for a student (PulaCash+ borrows are unlimited). */

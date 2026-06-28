@@ -57,7 +57,7 @@ async function onboardVerifiedStudent(app: App, email: string) {
     method: "POST",
     url: "/student/upload-id",
     headers: auth(token),
-    payload: { fileName: "id.png", mimeType: "image/png", sizeBytes: 5000 }
+    payload: { fileName: "id.png", mimeType: "image/png", sizeBytes: 5000, content: Buffer.from("fake-id-bytes").toString("base64") }
   });
   const studentId = (await app.inject({ method: "GET", url: "/me", headers: auth(token) })).json().id as string;
   const adminToken = await login(app, ADMIN_EMAIL, ADMIN_PASSWORD);
@@ -267,5 +267,52 @@ describe("PulaCash API — admin & webhooks", () => {
     const app = await createApp();
     const res = await app.inject({ method: "POST", url: "/webhooks/payments", payload: { reference: "sim_repayment_x", status: "settled" } });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("PulaCash API — access control (IDOR)", () => {
+  it("prevents a student from reading another student's loan", async () => {
+    const app = await createApp();
+    const alice = await onboardVerifiedStudent(app, "alice@ub.ac.bw");
+    const applied = await applyLoan(app, alice.token, { amount: 300, purpose: "Transport", expectedRepaymentDate: TERM_DATE });
+    const loanId = applied.json().loan.id as string;
+    const bob = await onboardVerifiedStudent(app, "bob@ub.ac.bw");
+
+    expect((await app.inject({ method: "GET", url: `/loans/${loanId}`, headers: auth(bob.token) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: `/loans/${loanId}`, headers: auth(alice.token) })).statusCode).toBe(200);
+  });
+});
+
+describe("PulaCash API — feedback board", () => {
+  it("posts (no author PII), lists, toggles votes, and only the author can delete", async () => {
+    const app = await createApp();
+    const a = await onboardVerifiedStudent(app, "amy@ub.ac.bw");
+    const b = await onboardVerifiedStudent(app, "ben@ub.ac.bw");
+
+    const post = await app.inject({ method: "POST", url: "/feedback", headers: auth(a.token), payload: { category: "feature", message: "Please add dark mode" } });
+    expect(post.statusCode, post.payload).toBe(200);
+    const fid = post.json().id as string;
+    // First-name only; no email, no user id leaked.
+    expect(post.json().authorName).toBe("Onboarded");
+    expect(JSON.stringify(post.json())).not.toContain("@ub.ac.bw");
+    expect(post.json()).not.toHaveProperty("userId");
+
+    const list = await app.inject({ method: "GET", url: "/feedback", headers: auth(b.token) });
+    expect(list.json()).toHaveLength(1);
+    expect(list.json()[0].isMine).toBe(false);
+
+    // B upvotes, then toggles off.
+    expect((await app.inject({ method: "POST", url: `/feedback/${fid}/vote`, headers: auth(b.token) })).json()).toMatchObject({ voteCount: 1, hasVoted: true });
+    expect((await app.inject({ method: "POST", url: `/feedback/${fid}/vote`, headers: auth(b.token) })).json()).toMatchObject({ voteCount: 0, hasVoted: false });
+
+    // B cannot delete A's post; A can.
+    expect((await app.inject({ method: "DELETE", url: `/feedback/${fid}`, headers: auth(b.token) })).statusCode).toBe(403);
+    expect((await app.inject({ method: "DELETE", url: `/feedback/${fid}`, headers: auth(a.token) })).statusCode).toBe(200);
+    expect((await app.inject({ method: "GET", url: "/feedback", headers: auth(a.token) })).json()).toHaveLength(0);
+  });
+
+  it("requires authentication to view the board", async () => {
+    const app = await createApp();
+    expect((await app.inject({ method: "GET", url: "/feedback" })).statusCode).toBe(401);
   });
 });

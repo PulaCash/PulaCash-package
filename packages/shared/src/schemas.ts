@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   allowedInstitutionDomains,
+  feedbackCategories,
   loanLifecycle,
   loanPurposes,
   paymentMethods,
@@ -83,7 +84,11 @@ export const studentProfileSchema = z.object({
 export const studentUploadIdSchema = z.object({
   fileName: z.string().trim().min(4).max(180),
   mimeType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
-  sizeBytes: z.number().int().positive().max(5_000_000)
+  sizeBytes: z.number().int().positive().max(5_000_000),
+  // Base64-encoded file bytes. The client uploads to *our* backend, which stores
+  // the document server-side — the app never talks to storage directly. Max length
+  // covers a 5 MB file (~6.7 MB base64) plus headroom.
+  content: z.string().min(1).max(7_500_000)
 });
 
 export const repaymentPlanSchema = z.enum(repaymentPlans);
@@ -120,6 +125,13 @@ export const subscribeSchema = z.object({
 export const paymentWebhookSchema = z.object({
   reference: z.string().min(1).max(200),
   status: z.enum(["settled", "failed"])
+});
+
+export const feedbackCategorySchema = z.enum(feedbackCategories);
+
+export const feedbackCreateSchema = z.object({
+  category: feedbackCategorySchema,
+  message: z.string().trim().min(4).max(1000)
 });
 
 export const adminLoanDecisionSchema = z.object({

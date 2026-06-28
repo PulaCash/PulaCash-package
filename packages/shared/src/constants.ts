@@ -139,6 +139,16 @@ export const paymentMethodLabels: Record<(typeof paymentMethods)[number], string
 
 export const repaymentPlans = ["bullet", "installment"] as const;
 
+/** Categories for the in-app feedback board. */
+export const feedbackCategories = ["bug", "feature", "general", "praise"] as const;
+
+export const feedbackCategoryLabels: Record<(typeof feedbackCategories)[number], string> = {
+  bug: "Bug",
+  feature: "Feature idea",
+  general: "General",
+  praise: "Praise"
+};
+
 /** Borrowing ceiling for a tier. */
 export function tierLimit(tier: string): number {
   return tier === "plus" ? membership.plus.limit : membership.free.limit;

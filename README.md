@@ -88,8 +88,13 @@ Disbursement and collection run through a `PaymentProvider` abstraction (`apps/a
 - **Account deletion:** in-app (`POST /account/delete`) with password re-authentication — erases/anonymises
   PII, revokes sessions, and frees the email (financial records retained, anonymised, for audit).
 - **API guardrails:** every route validates input with Zod; auth/role guards on every protected route;
-  malformed JSON returns 400 (not 500); the client only ever talks to our backend via the central
-  `endpoints` map (no raw URLs).
+  malformed JSON returns 400 (not 500). Object access is ownership-checked (a student can only read their
+  own loans/repayments/payments; admin-only routes are role-gated) — no IDOR.
+- **Client only talks to our backend:** the app calls our API exclusively via the central `endpoints` map
+  (no raw URLs) and **never a third party** — ID documents are uploaded *to the backend*, which stores them
+  in managed storage with the server-only key (no client-side signed-URL calls).
+- **Feedback board:** in-app board (Settings → Feedback board) for ideas/bugs with upvotes; responses expose
+  author **first names only** — never another user's full name, email, or id.
 - **Abuse / DoS protection:** per-IP rate limiting (in-memory baseline + optional Upstash sliding window),
   stricter limits on auth routes, request body cap (256 KB), and request/connection timeouts. `trustProxy`
   is off unless explicitly enabled behind a trusted proxy. CORS is pinned to an allow-list in production.

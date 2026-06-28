@@ -54,6 +54,18 @@ do-not-ship / can't-submit blockers from Phase 1:
   threshold still equals the cap, so the loan-review queue stays inert by design; the admin's real control is
   ID verification). Connect a live `PAYMENT_PROVIDER=http` before production launch.
 
+### Hardening review — `v0.5.0` (2026-06-28)
+- **No IDOR.** Every object-access path is ownership-checked: `/loans/:id` rejects non-owners (`getLoanForUser`),
+  `loans/me` · `repayments/me` · `payments/me` · dashboard filter by the caller's id, all `/admin/*` are
+  role-gated, and feedback delete is author/admin-only (tested).
+- **No SQL injection.** All statements are parameterized; the only interpolated identifier
+  (`PRAGMA table_info(<table>)`) uses hardcoded table names, never user input.
+- **Client → backend only.** ID documents now upload **to the backend** (base64), which writes to managed
+  storage with the server-only key — the previous client-side signed-URL `PUT` to Supabase is removed. The
+  app makes no direct third-party calls.
+- **Webhook** is exempt from rate limiting (signature-gated) so legitimate settlement bursts aren't dropped.
+- **Feedback board** exposes author first names only — no email/id/full name leaks.
+
 ---
 
 ## Part A — Internal security issues

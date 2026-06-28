@@ -8,6 +8,7 @@ import { registerUpstashRateLimit } from "./lib/rate-limit.js";
 import { accountRoutes } from "./routes/account.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
+import { feedbackRoutes } from "./routes/feedback.js";
 import { loanRoutes } from "./routes/loans.js";
 import { paymentRoutes } from "./routes/payments.js";
 import { studentRoutes } from "./routes/student.js";
@@ -62,10 +63,12 @@ export async function createApp(repository = new PulaCashRepository()) {
   });
 
   // Baseline in-memory rate limit (always on); Upstash adds a distributed layer.
+  // The signature-verified payment webhook is exempt so a burst of legitimate
+  // settlements is never dropped (it can't be abused without the HMAC secret).
   await app.register(rateLimit, {
     max: env.RATE_LIMIT_MAX,
     timeWindow: "1 minute",
-    allowList: (request) => request.url === "/health"
+    allowList: (request) => request.url === "/health" || request.url === "/webhooks/payments"
   });
   registerUpstashRateLimit(app);
 
@@ -106,6 +109,7 @@ export async function createApp(repository = new PulaCashRepository()) {
     await studentRoutes(scoped, repository);
     await loanRoutes(scoped, repository);
     await subscriptionRoutes(scoped, repository);
+    await feedbackRoutes(scoped, repository);
     await adminRoutes(scoped, repository);
     await paymentRoutes(scoped, repository);
   });
