@@ -26,7 +26,13 @@ export default function LoginScreen() {
     mutationFn: signIn,
     onSuccess: async (data) => {
       await queryClient.invalidateQueries();
-      router.replace(data.user.role === "admin" ? "/admin" : "/home");
+      if (data.user.role === "admin") {
+        router.replace("/admin");
+      } else if (!data.user.emailVerified) {
+        router.replace("/confirm-email");
+      } else {
+        router.replace("/home");
+      }
     }
   });
 
@@ -68,6 +74,10 @@ export default function LoginScreen() {
         ) : (
           <GradientButton label="Sign in" onPress={handleSubmit((values) => login.mutate(values))} />
         )}
+
+        <Pressable className="items-center" onPress={() => router.push("/forgot-password")}>
+          <Text className="text-sm font-extrabold text-pula-blue">Forgot password?</Text>
+        </Pressable>
       </GlassCard>
 
       <Pressable className="mt-6 flex-row justify-center" onPress={() => router.replace("/onboarding")}>

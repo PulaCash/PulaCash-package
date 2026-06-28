@@ -27,6 +27,14 @@ const envSchema = z.object({
   ADMIN_PASSWORD: z.string().min(8).max(128).optional(),
   // Session lifetime, in days, before a bearer token must be re-issued by login.
   SESSION_TTL_DAYS: z.coerce.number().int().positive().max(365).default(30),
+  // --- Payment rails ---
+  // 'simulated' settles instantly (local/dev). 'http' calls a real provider
+  // (Orange Money / MyZaka / DPO / Flutterwave, etc.) and settles via webhook.
+  PAYMENT_PROVIDER: z.enum(["simulated", "http"]).default("simulated"),
+  PAYMENT_API_URL: z.string().url().optional(),
+  PAYMENT_API_KEY: z.string().optional(),
+  PAYMENT_WEBHOOK_SECRET: z.string().optional(),
+  PAYMENT_CURRENCY: z.string().default("BWP"),
   // Honour X-Forwarded-For only when explicitly behind a trusted proxy/load balancer.
   // Off by default so a direct peer cannot spoof its IP to dodge rate limits.
   TRUST_PROXY: z
@@ -57,6 +65,11 @@ if (isProd) {
   }
 }
 
+// When the real payment provider is selected it must be fully configured.
+if (env.PAYMENT_PROVIDER === "http" && !(env.PAYMENT_API_URL && env.PAYMENT_API_KEY && env.PAYMENT_WEBHOOK_SECRET)) {
+  throw new Error("PAYMENT_PROVIDER=http requires PAYMENT_API_URL, PAYMENT_API_KEY, and PAYMENT_WEBHOOK_SECRET.");
+}
+
 export const adminCredentials = {
   email: env.ADMIN_EMAIL.toLowerCase(),
   name: env.ADMIN_NAME,
@@ -71,5 +84,6 @@ export const features = {
   supabase: Boolean(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY),
   upstash: Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN),
   resend: Boolean(env.RESEND_API_KEY),
-  postgres: Boolean(env.DATABASE_URL)
+  postgres: Boolean(env.DATABASE_URL),
+  livePayments: env.PAYMENT_PROVIDER === "http"
 };

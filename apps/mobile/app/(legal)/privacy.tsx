@@ -8,7 +8,7 @@ export default function PrivacyScreen() {
       sections={[
         {
           heading: "Information we collect",
-          body: "Account details (full name, student email, password — stored only as a salted hash); profile details (institution, student number, phone number); your uploaded student ID document for verification; and loan, repayment, and reliability-score records generated through your use of the service."
+          body: "Account details (full name, student email, password — stored only as a salted hash); profile details (institution, student number, phone number); your uploaded student ID document for verification; payment details processed through our payment providers (e.g. mobile-money number); and loan, repayment, membership, and reliability-score records generated through your use of the service."
         },
         {
           heading: "How we use your information",

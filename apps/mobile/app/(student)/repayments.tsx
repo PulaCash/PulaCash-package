@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { Banknote, CalendarDays, Landmark, ShieldCheck } from "lucide-react-native";
-import { ActivityIndicator, Text, View } from "react-native";
-import { Dashboard, defaultLoanLimits, Loan } from "@pulacash/shared";
+import { Banknote, CalendarDays, Check, ShieldCheck } from "lucide-react-native";
+import { useState } from "react";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { Dashboard, Loan, PaymentMethod, paymentMethodLabels, paymentMethods, RepaymentResult } from "@pulacash/shared";
 import { GlassCard } from "@/components/GlassCard";
 import { GradientButton } from "@/components/GradientButton";
 import { Screen } from "@/components/Screen";
@@ -14,6 +15,7 @@ import { colors, control, iconSize, radius, SECTION_GAP } from "@/theme/tokens";
 
 export default function RepaymentsScreen() {
   const queryClient = useQueryClient();
+  const [method, setMethod] = useState<PaymentMethod>("orange_money");
   const loans = useQuery({
     queryKey: ["loans"],
     queryFn: () => apiFetch<Loan[]>(endpoints.loans.mine).catch(() => demoLoans),
@@ -26,9 +28,10 @@ export default function RepaymentsScreen() {
     mutationFn: () => {
       if (!loan) throw new Error("No active loan to repay.");
       if (demoAuthBypassEnabled) return Promise.resolve(createDemoRepayment(loan));
-      return apiFetch(endpoints.repayments.initiate, {
+      // The amount is computed and charged server-side — we only choose the rail.
+      return apiFetch<RepaymentResult>(endpoints.repayments.initiate, {
         method: "POST",
-        body: JSON.stringify({ loanId: loan.id, amount: loan.repaymentAmount, method: "manual_bank_transfer" })
+        body: JSON.stringify({ loanId: loan.id, method })
       });
     },
     onSuccess: async () => {
@@ -40,7 +43,7 @@ export default function RepaymentsScreen() {
           ...(current ?? demoDashboard),
           borrowing: {
             ...(current ?? demoDashboard).borrowing,
-            available: defaultLoanLimits.availableToBorrow,
+            available: (current ?? demoDashboard).membership.limit,
             activeLoanAmount: null,
             lastDisbursedAmount: loan.amount,
             nextDueDate: null
@@ -91,17 +94,25 @@ export default function RepaymentsScreen() {
         </View>
       </GlassCard>
 
-      <GlassCard className="mt-5" contentClassName="gap-4">
-        <View className="flex-row items-center gap-3">
-          <Landmark color={colors.blue} size={iconSize.md} />
-          <View className="flex-1">
-            <Text className="text-base font-extrabold text-pula-ink">Manual bank transfer</Text>
-            <Text className="mt-1 text-sm text-pula-muted">Tap repay to record your payment for this loan.</Text>
-          </View>
-        </View>
-        <View className="flex-row items-center gap-3">
+      <GlassCard className="mt-5" contentClassName="gap-3">
+        <Text className="text-sm font-bold uppercase text-pula-muted">Pay from</Text>
+        {paymentMethods.map((option) => {
+          const selected = option === method;
+          return (
+            <Pressable
+              key={option}
+              className="flex-row items-center justify-between px-4 py-3"
+              style={{ borderRadius: radius.md, backgroundColor: selected ? colors.blueSoft : colors.mist, borderWidth: 1, borderColor: selected ? colors.blue : "transparent" }}
+              onPress={() => setMethod(option)}
+            >
+              <Text className="font-semibold" style={{ color: selected ? colors.blue : colors.ink }}>{paymentMethodLabels[option]}</Text>
+              {selected ? <Check color={colors.blue} size={iconSize.sm} /> : null}
+            </Pressable>
+          );
+        })}
+        <View className="flex-row items-center gap-3 pt-1">
           <ShieldCheck color={colors.success} size={iconSize.md} />
-          <Text className="flex-1 text-sm font-semibold text-pula-muted">Payment secrets remain server-side only.</Text>
+          <Text className="flex-1 text-sm font-semibold text-pula-muted">The exact amount owed is charged securely — never set on your device.</Text>
         </View>
       </GlassCard>
 
@@ -114,7 +125,7 @@ export default function RepaymentsScreen() {
           <ActivityIndicator color={colors.white} />
         </View>
       ) : (
-        <GradientButton label="Repay now" onPress={() => repay.mutate()} style={{ marginTop: SECTION_GAP }} />
+        <GradientButton label={`Repay P${loan.repaymentAmount}.00`} onPress={() => repay.mutate()} style={{ marginTop: SECTION_GAP }} />
       )}
     </Screen>
   );

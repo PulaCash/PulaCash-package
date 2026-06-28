@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS users (
   is_blacklisted INTEGER NOT NULL DEFAULT 0,
   password_hash TEXT,
   email_verified INTEGER NOT NULL DEFAULT 0,
+  subscription_tier TEXT NOT NULL DEFAULT 'free',
+  subscription_renews_at TEXT,
+  deleted_at TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -84,6 +87,20 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
   created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  loan_id TEXT,
+  kind TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'BWP',
+  provider TEXT NOT NULL,
+  provider_ref TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  settled_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS audit_logs (
   id TEXT PRIMARY KEY,
   actor_id TEXT NOT NULL,
@@ -124,6 +141,9 @@ function migrate(db: SqliteDb): void {
   const userColumns = columns("users");
   if (!userColumns.has("password_hash")) db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
   if (!userColumns.has("email_verified")) db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+  if (!userColumns.has("subscription_tier")) db.exec("ALTER TABLE users ADD COLUMN subscription_tier TEXT NOT NULL DEFAULT 'free'");
+  if (!userColumns.has("subscription_renews_at")) db.exec("ALTER TABLE users ADD COLUMN subscription_renews_at TEXT");
+  if (!userColumns.has("deleted_at")) db.exec("ALTER TABLE users ADD COLUMN deleted_at TEXT");
 
   const tokenColumns = columns("auth_tokens");
   if (!tokenColumns.has("expires_at")) db.exec("ALTER TABLE auth_tokens ADD COLUMN expires_at TEXT");

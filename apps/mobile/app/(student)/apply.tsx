@@ -1,10 +1,22 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { CalendarDays, Check, ReceiptText } from "lucide-react-native";
+import { CalendarDays, Check, ReceiptText, Sparkles } from "lucide-react-native";
 import { Controller, useForm } from "react-hook-form";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
-import { Dashboard, defaultBorrowAmount, defaultLoanLimits, Loan, LoanApplyResult, loanApplySchema, loanPurposes } from "@pulacash/shared";
+import {
+  computeApr,
+  Dashboard,
+  defaultBorrowAmount,
+  defaultLoanLimits,
+  defaultTermDays,
+  Loan,
+  LoanApplyResult,
+  loanApplySchema,
+  loanPurposes,
+  membership,
+  tierLimit
+} from "@pulacash/shared";
 import { z } from "zod";
 import { GlassCard } from "@/components/GlassCard";
 import { GradientButton } from "@/components/GradientButton";
@@ -13,27 +25,37 @@ import { TopBar } from "@/components/TopBar";
 import { apiFetch, demoAuthBypassEnabled } from "@/lib/api";
 import { createDemoLoanApplyResult, demoDashboard, demoLoans } from "@/lib/demo-data";
 import { endpoints } from "@/lib/endpoints";
+import { useMe } from "@/lib/useMe";
 import { colors, control as controlTokens, iconSize, radius, SECTION_GAP } from "@/theme/tokens";
 
 type LoanForm = z.infer<typeof loanApplySchema>;
-const presets = [200, 600, 1000, 2000];
+const presets = [200, 500, 1000, 2000];
+const defaultRepaymentDate = () => new Date(Date.now() + defaultTermDays * 86_400_000).toISOString().slice(0, 10);
 
 export default function ApplyScreen() {
   const queryClient = useQueryClient();
+  const me = useMe();
+  const tier = me.data?.subscriptionTier ?? "free";
+  const limit = tierLimit(tier);
+
   const { control, handleSubmit, watch, setValue, formState } = useForm<LoanForm>({
     resolver: zodResolver(loanApplySchema),
     defaultValues: {
       amount: defaultBorrowAmount,
       purpose: "Books and supplies",
-      expectedRepaymentDate: "2026-07-15",
+      expectedRepaymentDate: defaultRepaymentDate(),
       // Explicit opt-in: the borrower must actively accept the loan agreement.
       acceptedTerms: false
     }
   });
   const amount = watch("amount");
+  const repaymentDate = watch("expectedRepaymentDate");
   const acceptedTerms = watch("acceptedTerms");
   const fee = Math.round(amount * defaultLoanLimits.feeRate);
   const repayment = amount + fee;
+  const termDays = Math.round((Date.parse(repaymentDate) - Date.now()) / 86_400_000);
+  const apr = Number.isFinite(termDays) && termDays > 0 ? computeApr(fee, amount, termDays) : 0;
+  const overLimit = amount > limit;
 
   const apply = useMutation({
     mutationFn: (input: LoanForm) => {
@@ -179,10 +201,34 @@ export default function ApplyScreen() {
           <Text className="text-lg font-extrabold text-pula-ink">Repayment summary</Text>
         </View>
         <SummaryRow label="Amount requested" value={`P${amount}.00`} />
-        <SummaryRow label="Interest (25%)" value={`P${fee}.00`} />
+        <SummaryRow label="Service fee (3%)" value={`P${fee}.00`} />
         <SummaryRow label="Repayment amount" value={`P${repayment}.00`} strong />
-        <Text className="mt-4 text-sm font-semibold text-pula-blue">No hidden fees. Funds are sent instantly on approval.</Text>
+        <SummaryRow label="Representative APR" value={`${(apr * 100).toFixed(1)}%`} />
+        <SummaryRow label="Repayment term" value={`${termDays} days`} />
+        <Text className="mt-4 text-sm font-semibold text-pula-blue">
+          No hidden fees. Repay the full P{repayment}.00 by {repaymentDate}.
+        </Text>
       </GlassCard>
+
+      {overLimit ? (
+        <Pressable onPress={() => router.push("/membership")}>
+          <GlassCard className="mt-5" fill={colors.blue}>
+            <View className="flex-row items-center gap-3">
+              <Sparkles color={colors.white} size={iconSize.md} />
+              <View className="flex-1">
+                <Text className="text-base font-extrabold text-white">
+                  {tier === "plus" ? `The maximum loan is P${limit}.` : `Free accounts borrow up to P${limit}.`}
+                </Text>
+                {tier === "plus" ? null : (
+                  <Text className="mt-1 text-sm font-semibold text-white/90">
+                    Upgrade to PulaCash+ (P{membership.plus.priceBwp}/mo) to borrow up to P{membership.plus.limit}.
+                  </Text>
+                )}
+              </View>
+            </View>
+          </GlassCard>
+        </Pressable>
+      ) : null}
 
       <Pressable className="mt-5 flex-row items-center gap-3" onPress={() => setValue("acceptedTerms", !acceptedTerms, { shouldValidate: true })}>
         <View className="h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: acceptedTerms ? colors.blue : colors.line }}>
@@ -205,7 +251,12 @@ export default function ApplyScreen() {
           <ActivityIndicator color={colors.white} />
         </View>
       ) : (
-        <GradientButton label="Submit request" onPress={handleSubmit((input) => apply.mutate(input))} style={{ marginTop: SECTION_GAP }} />
+        <GradientButton
+          label="Submit request"
+          disabled={overLimit}
+          onPress={handleSubmit((input) => apply.mutate(input))}
+          style={{ marginTop: SECTION_GAP }}
+        />
       )}
     </Screen>
   );

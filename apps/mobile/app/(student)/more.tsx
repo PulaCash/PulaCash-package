@@ -1,17 +1,18 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { ChevronRight, FileText, HelpCircle, LogOut, ScrollText, Shield } from "lucide-react-native";
-import { Children, Fragment, ReactNode } from "react";
-import { Linking, Pressable, Text, View } from "react-native";
+import { ChevronRight, FileText, HelpCircle, LogOut, ScrollText, Shield, Sparkles, Trash2 } from "lucide-react-native";
+import { Children, Fragment, ReactNode, useState } from "react";
+import { ActivityIndicator, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { Dashboard, legal } from "@pulacash/shared";
 import { GlassCard, Divider } from "@/components/GlassCard";
+import { GradientButton } from "@/components/GradientButton";
 import { Screen } from "@/components/Screen";
 import { TopBar } from "@/components/TopBar";
-import { apiFetch, signOut } from "@/lib/api";
+import { apiFetch, ApiError, deleteAccount, signOut } from "@/lib/api";
 import { demoDashboard, demoUser } from "@/lib/demo-data";
 import { endpoints } from "@/lib/endpoints";
 import { useMe } from "@/lib/useMe";
-import { colors, iconSize, radius } from "@/theme/tokens";
+import { colors, control, iconSize, radius } from "@/theme/tokens";
 
 export default function MoreScreen() {
   const queryClient = useQueryClient();
@@ -26,6 +27,18 @@ export default function MoreScreen() {
   const initials = dashboard.data?.student.initials ?? name.slice(0, 2).toUpperCase();
   const email = me.data?.email ?? demoUser.email;
   const isAdmin = me.data?.role === "admin";
+  const isPlus = (me.data?.subscriptionTier ?? "free") === "plus";
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [password, setPassword] = useState("");
+
+  const remove = useMutation({
+    mutationFn: () => deleteAccount(password),
+    onSuccess: () => {
+      queryClient.clear();
+      router.replace("/welcome");
+    }
+  });
 
   async function logout() {
     await signOut();
@@ -47,6 +60,15 @@ export default function MoreScreen() {
           </View>
         </View>
       </GlassCard>
+
+      <SettingsGroup title="Account">
+        <SettingsRow
+          icon={<Sparkles color={colors.blue} size={iconSize.md} />}
+          label="PulaCash+ membership"
+          trailing={isPlus ? "Active" : "Free"}
+          onPress={() => router.push("/membership")}
+        />
+      </SettingsGroup>
 
       <SettingsGroup title="Legal">
         <SettingsRow icon={<ScrollText color={colors.blue} size={iconSize.md} />} label="Terms of Use" onPress={() => router.push("/terms")} />
@@ -73,9 +95,51 @@ export default function MoreScreen() {
         </GlassCard>
       </Pressable>
 
-      <Text className="mt-6 text-center text-xs text-pula-muted">
-        PulaCash · Operated under {legal.jurisdiction} law
-      </Text>
+      {/* Danger zone: in-app account deletion (App Store requirement). */}
+      {confirmingDelete ? (
+        <GlassCard className="mt-5" contentClassName="gap-3">
+          <Text className="text-base font-extrabold text-pula-ink">Delete your account?</Text>
+          <Text className="text-sm leading-5 text-pula-muted">
+            This permanently erases your profile and personal data. Enter your password to confirm.
+          </Text>
+          <View className="h-14 flex-row items-center bg-pula-mist px-4" style={{ borderRadius: radius.md }}>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Password"
+              placeholderTextColor="#8B96A8"
+              secureTextEntry
+              autoCapitalize="none"
+              className="flex-1 text-base font-semibold text-pula-ink"
+            />
+          </View>
+          {remove.isError ? (
+            <Text className="text-sm font-semibold text-red-500">
+              {remove.error instanceof ApiError ? remove.error.message : "Could not delete the account."}
+            </Text>
+          ) : null}
+          {remove.isPending ? (
+            <View className="items-center justify-center" style={{ height: control.height }}>
+              <ActivityIndicator color={colors.danger} />
+            </View>
+          ) : (
+            <View className="flex-row gap-3">
+              <View className="flex-1">
+                <GradientButton label="Cancel" variant="ghost" onPress={() => { setConfirmingDelete(false); setPassword(""); }} />
+              </View>
+              <View className="flex-1">
+                <GradientButton label="Delete" variant="ghost" disabled={password.length < 8} icon={<Trash2 color={colors.danger} size={iconSize.sm} />} onPress={() => remove.mutate()} />
+              </View>
+            </View>
+          )}
+        </GlassCard>
+      ) : (
+        <Pressable className="mt-4 items-center py-3" onPress={() => setConfirmingDelete(true)}>
+          <Text className="text-sm font-semibold text-pula-muted">Delete account</Text>
+        </Pressable>
+      )}
+
+      <Text className="mt-4 text-center text-xs text-pula-muted">PulaCash · Operated under {legal.jurisdiction} law</Text>
     </Screen>
   );
 }

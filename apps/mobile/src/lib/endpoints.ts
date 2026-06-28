@@ -8,7 +8,17 @@ export const endpoints = {
     logout: "/auth/logout",
     verifyEmail: "/auth/verify-email",
     resendVerification: "/auth/resend-verification",
+    requestPasswordReset: "/auth/request-password-reset",
+    resetPassword: "/auth/reset-password",
     me: "/me"
+  },
+  account: {
+    delete: "/account/delete"
+  },
+  subscriptions: {
+    me: "/subscriptions/me",
+    subscribe: "/subscriptions/subscribe",
+    cancel: "/subscriptions/cancel"
   },
   institutions: "/institutions",
   student: {
@@ -24,6 +34,9 @@ export const endpoints = {
   repayments: {
     initiate: "/repayments/initiate",
     mine: "/repayments/me"
+  },
+  payments: {
+    mine: "/payments/me"
   },
   admin: {
     dashboard: "/admin/dashboard",

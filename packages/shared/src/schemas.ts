@@ -3,8 +3,10 @@ import {
   allowedInstitutionDomains,
   loanLifecycle,
   loanPurposes,
+  paymentMethods,
   repaymentStatuses,
-  studentVerificationStatuses
+  studentVerificationStatuses,
+  subscriptionTiers
 } from "./constants.js";
 
 const emailDomainError = `Use an approved student email domain: ${allowedInstitutionDomains.join(", ")}`;
@@ -49,6 +51,26 @@ export const authLoginSchema = z.object({
 
 export const authLogoutSchema = z.object({}).optional();
 
+// Forgot-password: request a reset code, then set a new password with it. Both are
+// rate-limited and the request endpoint never reveals whether the email exists.
+export const passwordResetRequestSchema = z.object({
+  email: emailSchema
+});
+
+export const passwordResetSchema = z.object({
+  email: emailSchema,
+  code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your email."),
+  newPassword: passwordSchema
+});
+
+// In-app account deletion requires re-authentication with the current password.
+export const accountDeleteSchema = z.object({
+  password: passwordSchema,
+  confirm: z.literal(true)
+});
+
+export const paymentMethodSchema = z.enum(paymentMethods);
+
 export const studentProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(120),
   studentEmail: studentEmailSchema,
@@ -64,18 +86,33 @@ export const studentUploadIdSchema = z.object({
 });
 
 export const loanApplySchema = z.object({
-  // Hidden hard cap of P2,000 per loan — enforced here but never advertised in
-  // the UI. Amounts at/under the auto-approve threshold disburse instantly.
+  // P50–P2,000 (the per-tier ceiling is additionally enforced server-side). The
+  // expected repayment date must be at least the minimum term out (checked server-side).
   amount: z.number().int().min(50).max(2_000),
   purpose: z.enum(loanPurposes),
   expectedRepaymentDate: z.string().date(),
+  disbursementMethod: paymentMethodSchema.optional(),
   acceptedTerms: z.boolean().refine((value) => value, "Accept the loan terms before submitting.")
 });
 
+// The repayment amount is computed server-side from the loan — never supplied by the
+// client — so a client cannot under-pay and still clear the debt. The caller only
+// chooses which rail to pay from.
 export const repaymentInitiateSchema = z.object({
   loanId: z.string().uuid(),
-  amount: z.number().positive(),
-  method: z.enum(["manual_bank_transfer", "campus_cash_office", "future_provider_placeholder"])
+  method: paymentMethodSchema
+});
+
+export const subscribeSchema = z.object({
+  tier: z.enum(["plus"]),
+  paymentMethod: paymentMethodSchema
+});
+
+// Payment provider webhook payload (kept permissive across providers; the signature
+// is what's actually trusted — see the webhook route).
+export const paymentWebhookSchema = z.object({
+  reference: z.string().min(1).max(200),
+  status: z.enum(["settled", "failed"])
 });
 
 export const adminLoanDecisionSchema = z.object({
@@ -98,6 +135,8 @@ export const loanStatusSchema = z.enum(loanLifecycle);
 export const repaymentStatusSchema = z.enum(repaymentStatuses);
 export const verificationStatusSchema = z.enum(studentVerificationStatuses);
 
+export const subscriptionTierSchema = z.enum(subscriptionTiers);
+
 export const userSchema = z.object({
   id: z.string().uuid(),
   // A user may be a student (institutional email) or the admin (ordinary mailbox),
@@ -106,7 +145,9 @@ export const userSchema = z.object({
   fullName: z.string(),
   role: z.enum(["student", "admin"]),
   isBlacklisted: z.boolean(),
-  emailVerified: z.boolean().default(false)
+  emailVerified: z.boolean().default(false),
+  subscriptionTier: subscriptionTierSchema.default("free"),
+  subscriptionRenewsAt: z.string().nullable().default(null)
 });
 
 export const dashboardSchema = z.object({
@@ -126,6 +167,11 @@ export const dashboardSchema = z.object({
   reliability: z.object({
     score: z.number().int().min(0).max(100),
     label: z.string()
+  }),
+  membership: z.object({
+    tier: subscriptionTierSchema,
+    renewsAt: z.string().nullable(),
+    limit: z.number()
   }),
   nudges: z.array(z.string())
 });

@@ -6,7 +6,9 @@ import {
   LoanApplication,
   LoanApplyInput,
   LoanApplyResult,
+  Payment,
   Repayment,
+  RepaymentResult,
   User
 } from "@pulacash/shared";
 
@@ -18,7 +20,9 @@ export const demoUser: User = {
   fullName: "Demo Student",
   role: "student",
   isBlacklisted: false,
-  emailVerified: true
+  emailVerified: true,
+  subscriptionTier: "plus",
+  subscriptionRenewsAt: "2026-07-28"
 };
 
 export const demoDashboard: Dashboard = {
@@ -29,15 +33,20 @@ export const demoDashboard: Dashboard = {
     verificationStatus: "verified"
   },
   borrowing: {
-    available: 600,
-    limit: 600,
-    activeLoanAmount: 750,
-    lastDisbursedAmount: 600,
-    nextDueDate: "2026-07-15"
+    available: 2000,
+    limit: 2000,
+    activeLoanAmount: null,
+    lastDisbursedAmount: null,
+    nextDueDate: null
   },
   reliability: {
     score: 72,
     label: "Good"
+  },
+  membership: {
+    tier: "plus",
+    renewsAt: "2026-07-28",
+    limit: 2000
   },
   nudges: ["Repay on time to unlock higher limits."]
 };
@@ -48,20 +57,20 @@ export const demoLoans: Loan[] = [
     applicationId: "e37a7d60-67f6-43cc-bdbc-3dd682674a66",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 600,
-    fee: 150,
-    repaymentAmount: 750,
-    dueDate: "2026-07-15",
+    fee: 18,
+    repaymentAmount: 618,
+    dueDate: "2026-09-01",
     status: "disbursed",
-    disbursedAt: "2026-06-13T12:00:00.000Z",
-    createdAt: "2026-06-13T12:00:00.000Z"
+    disbursedAt: "2026-06-30T12:00:00.000Z",
+    createdAt: "2026-06-30T12:00:00.000Z"
   },
   {
     id: "71c94799-e1fc-4b1d-99cd-717599219f8e",
     applicationId: "18dff7b8-6555-41e1-9f7b-9e942e8bf585",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 200,
-    fee: 50,
-    repaymentAmount: 250,
+    fee: 6,
+    repaymentAmount: 206,
     dueDate: "2026-05-24",
     status: "repaid",
     disbursedAt: "2026-05-10T12:00:00.000Z",
@@ -170,12 +179,25 @@ export function createDemoLoanApplyResult(input: LoanApplyInput): LoanApplyResul
     status: "scheduled",
     method: null
   };
+  const payment: Payment = {
+    id: demoUuid(),
+    userId: demoUser.id,
+    loanId: loan.id,
+    kind: "disbursement",
+    amount: loan.amount,
+    currency: "BWP",
+    provider: "simulated",
+    providerRef: `sim_${demoUuid()}`,
+    status: "settled",
+    createdAt: new Date().toISOString(),
+    settledAt: new Date().toISOString()
+  };
 
-  return { status: "disbursed", loan, repayment };
+  return { status: "disbursed", loan, repayment, payment };
 }
 
-export function createDemoRepayment(loan: Loan): Repayment {
-  return {
+export function createDemoRepayment(loan: Loan): RepaymentResult {
+  const repayment: Repayment = {
     id: demoUuid(),
     loanId: loan.id,
     studentId: loan.studentId,
@@ -183,6 +205,20 @@ export function createDemoRepayment(loan: Loan): Repayment {
     dueDate: loan.dueDate,
     paidAt: new Date().toISOString(),
     status: "paid",
-    method: "manual_bank_transfer"
+    method: "simulated"
   };
+  const payment: Payment = {
+    id: demoUuid(),
+    userId: loan.studentId,
+    loanId: loan.id,
+    kind: "repayment",
+    amount: loan.repaymentAmount,
+    currency: "BWP",
+    provider: "simulated",
+    providerRef: `sim_${demoUuid()}`,
+    status: "settled",
+    createdAt: new Date().toISOString(),
+    settledAt: new Date().toISOString()
+  };
+  return { repayment, payment, loanStatus: "repaid" };
 }

@@ -16,7 +16,15 @@ export default function TermsScreen() {
         },
         {
           heading: "Loans, fees & repayment",
-          body: "Each approved loan carries a fixed service fee disclosed in full before you accept. The total repayment amount and due date are shown on the loan agreement screen before submission. You agree to repay the total amount by the due date. Late or missed repayments may reduce your reliability score and affect future eligibility."
+          body: "Each approved loan carries a flat 3% service fee disclosed in full, with the representative APR (never above 36%) and a term of at least 62 days, before you accept. You agree to repay the total amount by the due date. Repayments are collected through licensed payment rails for the exact amount owed. Late or missed repayments may reduce your reliability score and affect future eligibility."
+        },
+        {
+          heading: "PulaCash+ membership",
+          body: "PulaCash+ is an optional paid membership that unlocks instant disbursement and a higher borrowing limit. It is billed monthly through your chosen payment method (not the App Store), renews automatically, and can be cancelled at any time. The membership is a service fee and is separate from the cost of any individual loan."
+        },
+        {
+          heading: "Payments",
+          body: "Disbursements and collections are processed by third-party payment providers (mobile money and card rails). By using PulaCash you authorise us to instruct these providers to pay out approved loans and collect the amounts you owe."
         },
         {
           heading: "Responsible lending",

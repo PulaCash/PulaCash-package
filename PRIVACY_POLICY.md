@@ -13,8 +13,10 @@ consent to the practices described here.
   only as a salted **scrypt** hash — never in plain text and never recoverable).
 - **Profile details:** institution, student number, and phone number.
 - **Identity document:** the student ID image/PDF you upload for verification.
-- **Service records:** loan applications, disbursements, repayments, and your
-  reliability score, generated through your use of PulaCash.
+- **Payment details:** processed through our payment providers (e.g. your
+  mobile-money number) to disburse loans and collect repayments and membership fees.
+- **Service records:** loan applications, disbursements, repayments, membership, and
+  your reliability score, generated through your use of PulaCash.
 
 ## 2. How we use your information
 To verify that you are an enrolled student; to assess and process loan applications;

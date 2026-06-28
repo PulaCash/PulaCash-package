@@ -23,7 +23,7 @@ export async function adminRoutes(app: FastifyInstance, repository: PulaCashRepo
   app.post("/admin/loans/:id/approve", async (request) => {
     const user = requireAdmin(request, repository);
     const params = parseParams(idParamSchema, request.params);
-    return repository.approveLoan(user, params.id);
+    return repository.approveLoan(user, params.id, request.log);
   });
 
   app.post("/admin/loans/:id/reject", async (request) => {

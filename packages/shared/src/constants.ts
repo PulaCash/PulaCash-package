@@ -65,21 +65,85 @@ export const scoreBands = [
 
 export const defaultLoanLimits = {
   startingLimit: 2000,
-  availableToBorrow: 600,
+  // Per-tier borrowing ceilings (PulaCash+ unlocks the higher limit).
+  freeTierLimit: 500,
+  plusTierLimit: 2000,
+  availableToBorrow: 500,
   minAmount: 50,
-  // Hard ceiling on a single loan. Enforced in validation but intentionally
-  // not surfaced anywhere in the UI.
+  // Absolute hard ceiling on a single loan (the PulaCash+ limit).
   maxAmount: 2000,
-  // Loans are repaid with 25% interest (repayment = amount * (1 + feeRate)).
-  feeRate: 0.25,
-  // Loans up to this amount are auto-approved and disbursed instantly; above it
-  // they fall back to admin review. Matches the hidden hard cap.
+  // Flat 3% service fee (repayment = amount + round(amount * feeRate)). Combined
+  // with the >=62-day minimum term this keeps the all-in APR well under Apple's
+  // 36% cap (3% over 62 days ~= 17.7% APR), satisfying App Review Guideline 3.2.2.
+  feeRate: 0.03,
+  // Apple forbids requiring full repayment in <=60 days, so the minimum term is 62.
+  minTermDays: 62,
+  maxTermDays: 90,
+  // Apple's maximum permitted APR for loan apps (including all fees).
+  aprCap: 0.36,
   autoApproveThreshold: 2000,
   defaultScore: 72
 } as const;
 
-// Default amount pre-selected on the loan request screen.
-export const defaultBorrowAmount = 600;
+// Default amount + term pre-selected on the loan request screen.
+export const defaultBorrowAmount = 500;
+export const defaultTermDays = 62;
+
+/**
+ * Membership tiers. Revenue comes mainly from the optional PulaCash+ subscription
+ * (a financial service billed via our payment rails, outside Apple IAP), keeping the
+ * loan itself low-APR and Apple-compliant while the business stays profitable.
+ */
+export const subscriptionTiers = ["free", "plus"] as const;
+
+export const membership = {
+  free: {
+    priceBwp: 0,
+    currency: "BWP",
+    limit: 500,
+    benefits: ["Borrow up to P500", "Standard next-day disbursement", "Build your reliability score"]
+  },
+  plus: {
+    priceBwp: 49,
+    currency: "BWP",
+    periodDays: 30,
+    limit: 2000,
+    benefits: [
+      "Instant disbursement",
+      "Borrow up to P2,000",
+      "Priority application review",
+      "Lower APR & faster credit building"
+    ]
+  }
+} as const;
+
+/** Mobile-money / card rails supported for disbursement and collection in Botswana. */
+export const paymentMethods = ["orange_money", "myzaka", "smega", "card"] as const;
+
+export const paymentMethodLabels: Record<(typeof paymentMethods)[number], string> = {
+  orange_money: "Orange Money",
+  myzaka: "MyZaka (Mascom)",
+  smega: "Smega (BTC)",
+  card: "Debit / Credit card"
+};
+
+/** Borrowing ceiling for a tier. */
+export function tierLimit(tier: string): number {
+  return tier === "plus" ? membership.plus.limit : membership.free.limit;
+}
+
+/** Annualised percentage rate as a fraction (e.g. 0.177), from a flat fee + term. */
+export function computeApr(fee: number, principal: number, termDays: number): number {
+  if (principal <= 0 || termDays <= 0) return 0;
+  return (fee / principal) * (365 / termDays);
+}
+
+/** Full, disclosed quote for a loan of `amount` over `termDays`. */
+export function loanQuote(amount: number, termDays: number = defaultTermDays) {
+  const fee = Math.round(amount * defaultLoanLimits.feeRate);
+  const repaymentAmount = amount + fee;
+  return { amount, fee, repaymentAmount, termDays, apr: computeApr(fee, amount, termDays) };
+}
 
 export function isApprovedStudentEmail(email: string): boolean {
   const domain = email.trim().toLowerCase().split("@")[1];

@@ -5,10 +5,13 @@ import Fastify from "fastify";
 import { env } from "./env.js";
 import { genReqId, loggerOptions } from "./lib/logger.js";
 import { registerUpstashRateLimit } from "./lib/rate-limit.js";
+import { accountRoutes } from "./routes/account.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { loanRoutes } from "./routes/loans.js";
+import { paymentRoutes } from "./routes/payments.js";
 import { studentRoutes } from "./routes/student.js";
+import { subscriptionRoutes } from "./routes/subscriptions.js";
 import { PulaCashRepository, RepositoryError } from "./services/repository.js";
 
 export async function createApp(repository = new PulaCashRepository()) {
@@ -25,6 +28,26 @@ export async function createApp(repository = new PulaCashRepository()) {
     bodyLimit: 256 * 1024,
     requestTimeout: 15_000,
     connectionTimeout: 10_000
+  });
+
+  // Parse JSON ourselves so the raw body is retained for payment-webhook HMAC
+  // verification. Empty bodies parse to {} (POSTs with no payload); malformed JSON
+  // surfaces a 400 (honoured by the error handler) rather than an opaque 500.
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (request, body, done) => {
+    (request as typeof request & { rawBody?: string }).rawBody = typeof body === "string" ? body : "";
+    if (!body || (body as string).length === 0) {
+      done(null, {});
+      return;
+    }
+    try {
+      done(null, JSON.parse(body as string));
+    } catch {
+      const error = new Error("Body is not valid JSON but content-type is set to 'application/json'") as Error & {
+        statusCode?: number;
+      };
+      error.statusCode = 400;
+      done(error);
+    }
   });
 
   // Security headers. CSP is irrelevant for a JSON API and only adds noise.
@@ -79,9 +102,12 @@ export async function createApp(repository = new PulaCashRepository()) {
 
   await app.register(async (scoped) => {
     await authRoutes(scoped, repository);
+    await accountRoutes(scoped, repository);
     await studentRoutes(scoped, repository);
     await loanRoutes(scoped, repository);
+    await subscriptionRoutes(scoped, repository);
     await adminRoutes(scoped, repository);
+    await paymentRoutes(scoped, repository);
   });
 
   return app;

@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
-import { User } from "@pulacash/shared";
+import { PaymentMethod, User } from "@pulacash/shared";
+import { endpoints } from "./endpoints";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:4000";
 const tokenKey = "pulacash.authToken";
@@ -64,34 +65,60 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return (await response.json()) as T;
 }
 
-// --- Auth actions (wrap the network call + token persistence) ---
+// --- Auth actions (wrap the network call + token persistence). All routes come
+// from the central `endpoints` map — screens never hard-code raw URL strings. ---
 
 type AuthResponse = { token: string; user: User; demoVerificationCode?: string };
 
 /** Register a new student. Persists the returned session and surfaces the dev code (if any). */
 export async function signUp(input: { email: string; fullName: string; password: string }): Promise<AuthResponse> {
-  const result = await apiFetch<AuthResponse>("/auth/register", { method: "POST", body: JSON.stringify(input) });
+  const result = await apiFetch<AuthResponse>(endpoints.auth.register, { method: "POST", body: JSON.stringify(input) });
   await setAuthToken(result.token);
   return result;
 }
 
 /** Sign in with email + password. Persists the returned session token. */
 export async function signIn(input: { email: string; password: string }): Promise<AuthResponse> {
-  const result = await apiFetch<AuthResponse>("/auth/login", { method: "POST", body: JSON.stringify(input) });
+  const result = await apiFetch<AuthResponse>(endpoints.auth.login, { method: "POST", body: JSON.stringify(input) });
   await setAuthToken(result.token);
   return result;
 }
 
 export async function verifyEmailCode(input: { email: string; code: string }): Promise<{ verified: boolean }> {
-  return apiFetch("/auth/verify-email", { method: "POST", body: JSON.stringify(input) });
+  return apiFetch(endpoints.auth.verifyEmail, { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function resendVerification(): Promise<{ demoVerificationCode?: string }> {
-  return apiFetch("/auth/resend-verification", { method: "POST" });
+  return apiFetch(endpoints.auth.resendVerification, { method: "POST" });
+}
+
+export async function requestPasswordReset(email: string): Promise<{ demoResetCode?: string }> {
+  return apiFetch(endpoints.auth.requestPasswordReset, { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export async function resetPassword(input: { email: string; code: string; newPassword: string }): Promise<{ ok: boolean }> {
+  return apiFetch(endpoints.auth.resetPassword, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Permanently delete the account (re-authenticates with the current password). */
+export async function deleteAccount(password: string): Promise<void> {
+  await apiFetch(endpoints.account.delete, { method: "POST", body: JSON.stringify({ password, confirm: true }) });
+  await clearAuthToken();
+}
+
+export async function subscribeToPlus(paymentMethod: PaymentMethod): Promise<{ user: User }> {
+  return apiFetch(endpoints.subscriptions.subscribe, {
+    method: "POST",
+    body: JSON.stringify({ tier: "plus", paymentMethod })
+  });
+}
+
+export async function cancelSubscription(): Promise<User> {
+  return apiFetch(endpoints.subscriptions.cancel, { method: "POST" });
 }
 
 /** Revoke the session server-side (best effort) and clear it locally. */
 export async function signOut(): Promise<void> {
-  await apiFetch("/auth/logout", { method: "POST" }).catch(() => undefined);
+  await apiFetch(endpoints.auth.logout, { method: "POST" }).catch(() => undefined);
   await clearAuthToken();
 }

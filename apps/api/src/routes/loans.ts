@@ -12,7 +12,7 @@ export async function loanRoutes(app: FastifyInstance, repository: PulaCashRepos
   app.post("/loans/apply", async (request) => {
     const user = requireUser(request, repository);
     const input = parseBody(loanApplySchema, request.body);
-    return repository.applyForLoan(user, input);
+    return repository.applyForLoan(user, input, request.log);
   });
 
   app.get("/loans/me", async (request) => {
@@ -29,7 +29,13 @@ export async function loanRoutes(app: FastifyInstance, repository: PulaCashRepos
   app.post("/repayments/initiate", async (request) => {
     const user = requireUser(request, repository);
     const input = parseBody(repaymentInitiateSchema, request.body);
-    return repository.initiateRepayment(user, input.loanId, input.amount, input.method);
+    // No amount is accepted from the client — the server charges exactly what is owed.
+    return repository.initiateRepayment(user, input.loanId, input.method, request.log);
+  });
+
+  app.get("/payments/me", async (request) => {
+    const user = requireUser(request, repository);
+    return repository.listMyPayments(user);
   });
 
   app.get("/repayments/me", async (request) => {

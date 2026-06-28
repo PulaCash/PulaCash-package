@@ -20,10 +20,22 @@ password and device secure and for all activity under your account. Notify us
 immediately of any unauthorised use.
 
 ## 3. Loans, fees & repayment
-Each approved loan carries a fixed service fee disclosed in full before you accept.
-The total repayment amount and due date are shown on the loan agreement screen before
-submission. You agree to repay the total amount by the due date. Late or missed
-repayments may reduce your reliability score and affect future eligibility.
+Each approved loan carries a **flat 3% service fee**, with the **representative APR
+(never above 36%)** and a **minimum 62-day term** disclosed in full before you accept.
+You agree to repay the total amount by the due date. Repayments are collected through
+licensed payment rails for the exact amount owed — never an amount entered on your
+device. Late or missed repayments may reduce your reliability score and affect future
+eligibility.
+
+**PulaCash+ membership.** PulaCash+ is an optional paid membership that unlocks
+instant disbursement and a higher borrowing limit. It is billed monthly through your
+chosen payment method (not the App Store), renews automatically, and can be cancelled
+at any time. The membership is a service fee, separate from the cost of any individual
+loan.
+
+**Payments.** Disbursements and collections are processed by third-party payment
+providers (mobile-money and card rails). By using PulaCash you authorise us to instruct
+these providers to pay out approved loans and collect the amounts you owe.
 
 ## 4. Responsible lending
 PulaCash lends only within published limits and only to verified students. We may

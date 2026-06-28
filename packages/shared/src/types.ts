@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  accountDeleteSchema,
   adminLoanDecisionSchema,
   authLoginSchema,
   authRegisterSchema,
@@ -7,11 +8,17 @@ import {
   blacklistStudentSchema,
   dashboardSchema,
   loanApplySchema,
+  passwordResetRequestSchema,
+  passwordResetSchema,
+  paymentMethodSchema,
+  paymentWebhookSchema,
   repaymentInitiateSchema,
   loanStatusSchema,
   repaymentStatusSchema,
   studentProfileSchema,
   studentUploadIdSchema,
+  subscribeSchema,
+  subscriptionTierSchema,
   userSchema,
   verificationStatusSchema,
   verifyStudentSchema
@@ -20,18 +27,50 @@ import {
 export type AuthRegisterInput = z.infer<typeof authRegisterSchema>;
 export type AuthVerifyEmailInput = z.infer<typeof authVerifyEmailSchema>;
 export type AuthLoginInput = z.infer<typeof authLoginSchema>;
+export type PasswordResetRequestInput = z.infer<typeof passwordResetRequestSchema>;
+export type PasswordResetInput = z.infer<typeof passwordResetSchema>;
+export type AccountDeleteInput = z.infer<typeof accountDeleteSchema>;
 export type StudentProfileInput = z.infer<typeof studentProfileSchema>;
 export type StudentUploadIdInput = z.infer<typeof studentUploadIdSchema>;
 export type LoanApplyInput = z.infer<typeof loanApplySchema>;
 export type RepaymentInitiateInput = z.infer<typeof repaymentInitiateSchema>;
+export type SubscribeInput = z.infer<typeof subscribeSchema>;
+export type PaymentWebhookInput = z.infer<typeof paymentWebhookSchema>;
 export type AdminLoanDecisionInput = z.infer<typeof adminLoanDecisionSchema>;
 export type BlacklistStudentInput = z.infer<typeof blacklistStudentSchema>;
 export type VerifyStudentInput = z.infer<typeof verifyStudentSchema>;
+export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
+export type SubscriptionTier = z.infer<typeof subscriptionTierSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;
 export type LoanStatus = z.infer<typeof loanStatusSchema>;
 export type RepaymentStatus = z.infer<typeof repaymentStatusSchema>;
 export type VerificationStatus = z.infer<typeof verificationStatusSchema>;
+
+export type PaymentKind = "disbursement" | "repayment" | "subscription";
+export type PaymentStatus = "pending" | "settled" | "failed";
+
+export type Payment = {
+  id: string;
+  userId: string;
+  loanId: string | null;
+  kind: PaymentKind;
+  amount: number;
+  currency: string;
+  provider: string;
+  providerRef: string;
+  status: PaymentStatus;
+  createdAt: string;
+  settledAt: string | null;
+};
+
+export type LoanQuote = {
+  amount: number;
+  fee: number;
+  repaymentAmount: number;
+  termDays: number;
+  apr: number;
+};
 
 export type LoanApplication = {
   id: string;
@@ -68,11 +107,20 @@ export type Repayment = {
   method?: string | null;
 };
 
-// Result of POST /loans/apply: small loans are disbursed instantly, larger ones
-// queue for admin review.
+// Result of POST /loans/apply. Approved loans are disbursed through the payment
+// rails (instant when the provider settles synchronously, otherwise `payment` is
+// pending and settled via webhook); larger amounts queue for admin review.
 export type LoanApplyResult =
-  | { status: "disbursed"; loan: Loan; repayment: Repayment }
+  | { status: "disbursed"; loan: Loan; repayment: Repayment; payment: Payment }
   | { status: "pending_review"; application: LoanApplication };
+
+// Result of POST /repayments/initiate: the charge is created on the rails; the loan
+// is only marked repaid once the payment settles (synchronously, or via webhook).
+export type RepaymentResult = {
+  repayment: Repayment;
+  payment: Payment;
+  loanStatus: LoanStatus;
+};
 
 export type AdminDashboard = {
   pendingApplications: number;

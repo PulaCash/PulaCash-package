@@ -30,9 +30,27 @@ resolve the Phase-0 security gates and most of the hardening items:
 - **Compliance:** APP-3 (Privacy Policy, Terms, Loan Agreement — in-app + repo-root Markdown,
   Botswana jurisdiction; explicit opt-in consent replaces the pre-checked box), partial APP-5
   (demo bypass/admin link removed or gated; misleading settings rows removed).
-- **Deliberately out of scope here (product/legal decisions):** APP-1 (loan APR/term model),
-  APP-2 (in-app account-deletion endpoint — policy documented, endpoint TODO), APP-4 (real
-  payment rails), APP-6 (licensing), SEC-H1/SEC-H4 (server-side settlement / real review policy).
+- **Deferred to v0.3.0 (see below):** APP-1, APP-2, APP-4, SEC-H1.
+
+## Remediation status — `v0.3.0` (2026-06-28)
+
+The monetization/compliance and payments rework in this release resolves the remaining
+do-not-ship / can't-submit blockers from Phase 1:
+
+- **APP-1 (loan APR/term) — fixed.** Flat **3% fee** + **≥62-day minimum term** ⇒ all-in **APR ~18%,
+  hard-capped under 36%**, and full repayment is never required in ≤60 days. The APR + term are disclosed
+  on the apply screen and in the loan agreement. Profitability is preserved via an optional **PulaCash+
+  membership (P49/mo)** billed off-IAP through the payment rails.
+- **APP-2 (account deletion) — fixed.** In-app `POST /account/delete` with password re-auth: erases/anonymises
+  PII, revokes sessions, frees the email; retained financial records are anonymised.
+- **APP-4 / SEC-H1 (payments + settlement) — fixed.** Real `PaymentProvider` abstraction (simulated default,
+  `http` provider scaffold) with signed settlement webhook. **Repayment is computed server-side and reconciled
+  from settlement — the client can no longer under-pay to clear a loan** (verified by test + live check).
+- **Also added:** password reset (with session revocation), standalone email-confirmation screen, and the
+  client routes all calls through a central `endpoints` map (no raw URLs).
+- **Still open (external/process):** APP-6 (NBFIRA licensing — in progress) and SEC-H4 (the loan auto-approve
+  threshold still equals the cap, so the loan-review queue stays inert by design; the admin's real control is
+  ID verification). Connect a live `PAYMENT_PROVIDER=http` before production launch.
 
 ---
 

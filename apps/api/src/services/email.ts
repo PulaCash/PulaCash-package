@@ -11,24 +11,24 @@ function client(): Resend | null {
 }
 
 /**
- * Send the student email-verification code via Resend. When Resend isn't
- * configured we log the code instead (dev only) so the flow remains testable.
- * Returns the code only outside production, so dev/test clients can auto-fill it.
+ * Deliver a one-time code by email. When Resend isn't configured we log the code
+ * (dev only — never in production) so the flow stays testable. Returns the code only
+ * outside production so dev/test clients can auto-fill it.
  */
-export async function sendVerificationEmail(
+async function deliverCode(
   to: string,
   code: string,
+  subject: string,
+  intro: string,
   log: FastifyBaseLogger
 ): Promise<{ devCode?: string }> {
   const api = client();
   if (!api) {
     if (isProd) {
-      // Never write a live code to the logs. In production this path is a
-      // misconfiguration (Resend should be set), so warn without the secret.
-      log.warn({ to }, "Resend not configured in production — verification email NOT sent.");
+      log.warn({ to }, "Resend not configured in production — code email NOT sent.");
       return {};
     }
-    log.info({ to, code }, "Resend not configured — verification code logged (dev only).");
+    log.info({ to, code }, "Resend not configured — one-time code logged (dev only).");
     return { devCode: code };
   }
 
@@ -36,12 +36,26 @@ export async function sendVerificationEmail(
     await api.emails.send({
       from: env.EMAIL_FROM,
       to,
-      subject: "Your PulaCash verification code",
-      html: `<p>Welcome to PulaCash.</p><p>Your verification code is <strong>${code}</strong>. It expires in 15 minutes.</p>`
+      subject,
+      html: `<p>${intro}</p><p>Your code is <strong>${code}</strong>. It expires in 15 minutes.</p>`
     });
   } catch (err) {
-    log.error({ err, to }, "Failed to send verification email.");
+    log.error({ err, to }, "Failed to send email.");
   }
 
   return isProd ? {} : { devCode: code };
+}
+
+export function sendVerificationEmail(to: string, code: string, log: FastifyBaseLogger) {
+  return deliverCode(to, code, "Your PulaCash verification code", "Welcome to PulaCash. Confirm your email to continue.", log);
+}
+
+export function sendPasswordResetEmail(to: string, code: string, log: FastifyBaseLogger) {
+  return deliverCode(
+    to,
+    code,
+    "Your PulaCash password reset code",
+    "We received a request to reset your PulaCash password. If this wasn't you, you can ignore this email.",
+    log
+  );
 }
