@@ -1,12 +1,14 @@
 import { GlassView } from "expo-glass-effect";
 import * as Haptics from "expo-haptics";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { HandCoins, House, LayoutGrid, LucideIcon, UserRound, Wallet } from "lucide-react-native";
 import { useEffect, useRef } from "react";
-import { Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Dimensions, Platform, Pressable, StyleSheet, View } from "react-native";
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GlassMergeContainer, GlassSurface, liquidGlassAvailable } from "@/components/glass/Glass";
+import { demoAuthBypassEnabled } from "@/lib/api";
+import { useMe } from "@/lib/useMe";
 import { colors, radius } from "@/theme/tokens";
 
 const INACTIVE = "#8A92A3";
@@ -64,6 +66,22 @@ const lensShadow = {
 const AnimatedGlassView = Animated.createAnimatedComponent(GlassView);
 
 export default function StudentTabs() {
+  const me = useMe();
+
+  // Require a signed-in session before any student screen renders. Fail closed.
+  if (!demoAuthBypassEnabled) {
+    if (me.isPending) {
+      return (
+        <View className="flex-1 items-center justify-center bg-white">
+          <ActivityIndicator color={colors.blue} />
+        </View>
+      );
+    }
+    if (me.isError || !me.data) {
+      return <Redirect href="/welcome" />;
+    }
+  }
+
   return (
     <Tabs
       initialRouteName="home"

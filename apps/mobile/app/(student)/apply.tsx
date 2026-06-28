@@ -26,7 +26,8 @@ export default function ApplyScreen() {
       amount: defaultBorrowAmount,
       purpose: "Books and supplies",
       expectedRepaymentDate: "2026-07-15",
-      acceptedTerms: true
+      // Explicit opt-in: the borrower must actively accept the loan agreement.
+      acceptedTerms: false
     }
   });
   const amount = watch("amount");
@@ -183,11 +184,16 @@ export default function ApplyScreen() {
         <Text className="mt-4 text-sm font-semibold text-pula-blue">No hidden fees. Funds are sent instantly on approval.</Text>
       </GlassCard>
 
-      <Pressable className="mt-5 flex-row items-center gap-3" onPress={() => setValue("acceptedTerms", !acceptedTerms)}>
+      <Pressable className="mt-5 flex-row items-center gap-3" onPress={() => setValue("acceptedTerms", !acceptedTerms, { shouldValidate: true })}>
         <View className="h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: acceptedTerms ? colors.blue : colors.line }}>
           {acceptedTerms ? <Check color={colors.white} size={iconSize.sm} /> : null}
         </View>
-        <Text className="flex-1 text-sm leading-5 text-pula-muted">I accept the loan terms and repayment responsibility.</Text>
+        <Text className="flex-1 text-sm leading-5 text-pula-muted">
+          I accept the{" "}
+          <Text className="font-extrabold text-pula-blue" onPress={() => router.push("/loan-agreement")}>loan agreement</Text>
+          {" "}and repayment responsibility, and the{" "}
+          <Text className="font-extrabold text-pula-blue" onPress={() => router.push("/terms")}>Terms of Use</Text>.
+        </Text>
       </Pressable>
       {formState.errors.acceptedTerms ? <Text className="mt-2 text-sm text-red-500">Accept terms before submitting.</Text> : null}
       {apply.isError ? (

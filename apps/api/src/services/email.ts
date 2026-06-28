@@ -22,8 +22,14 @@ export async function sendVerificationEmail(
 ): Promise<{ devCode?: string }> {
   const api = client();
   if (!api) {
+    if (isProd) {
+      // Never write a live code to the logs. In production this path is a
+      // misconfiguration (Resend should be set), so warn without the secret.
+      log.warn({ to }, "Resend not configured in production — verification email NOT sent.");
+      return {};
+    }
     log.info({ to, code }, "Resend not configured — verification code logged (dev only).");
-    return isProd ? {} : { devCode: code };
+    return { devCode: code };
   }
 
   try {

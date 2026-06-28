@@ -10,21 +10,21 @@ import {
   User
 } from "@pulacash/shared";
 
-export const demoToken = "demo-student-token";
-export const demoAdminToken = "demo-admin-token";
-
+// Neutral placeholder fixtures used only as an offline fallback for the UI. They
+// contain no real personal data and carry no credentials.
 export const demoUser: User = {
   id: "8a287637-708e-4382-b166-57f2d9b18121",
-  email: "thatayotlhe.tsenang@ub.ac.bw",
-  fullName: "Thatayotlhe Tsenang",
+  email: "demo.student@ub.ac.bw",
+  fullName: "Demo Student",
   role: "student",
-  isBlacklisted: false
+  isBlacklisted: false,
+  emailVerified: true
 };
 
 export const demoDashboard: Dashboard = {
   student: {
     name: demoUser.fullName,
-    initials: "TT",
+    initials: "DS",
     institution: "University of Botswana",
     verificationStatus: "verified"
   },
@@ -92,6 +92,7 @@ export const demoApplications: LoanApplication[] = [
 
 export const demoAdminDashboard: AdminDashboard = {
   pendingApplications: 2,
+  pendingIdVerifications: 3,
   activeLoans: 8,
   repaymentsDue: 4,
   overdueLoans: 1,
@@ -101,8 +102,8 @@ export const demoAdminDashboard: AdminDashboard = {
 export const demoStudents = [
   {
     id: "8a287637-708e-4382-b166-57f2d9b18121",
-    fullName: "Thatayotlhe Tsenang",
-    email: "thatayotlhe.tsenang@ub.ac.bw",
+    fullName: "Demo Student",
+    email: "demo.student@ub.ac.bw",
     reliability: 72,
     verification: "verified",
     loanCount: 2,
@@ -110,8 +111,8 @@ export const demoStudents = [
   },
   {
     id: "a902aa44-5c32-463e-8781-94a92b2ec0a9",
-    fullName: "Molefe Thato",
-    email: "thato.molefe@ub.ac.bw",
+    fullName: "Sample Borrower",
+    email: "sample.borrower@ub.ac.bw",
     reliability: 64,
     verification: "id_pending",
     loanCount: 1,
@@ -119,8 +120,8 @@ export const demoStudents = [
   },
   {
     id: "e9f7b541-7d08-47ea-a8b4-c13c9a88d32a",
-    fullName: "Naledi Moremi",
-    email: "naledi.moremi@buan.ac.bw",
+    fullName: "Test Applicant",
+    email: "test.applicant@buan.ac.bw",
     reliability: 88,
     verification: "verified",
     loanCount: 4,

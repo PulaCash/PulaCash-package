@@ -1,320 +1,339 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { LinearGradient } from "expo-linear-gradient";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DocumentPicker from "expo-document-picker";
 import { router } from "expo-router";
 import {
   ArrowLeft,
+  AtSign,
   Check,
   CheckCircle2,
-  Gift,
+  IdCard,
   LockKeyhole,
   Mail,
+  Phone,
   ShieldCheck,
   UserRound
 } from "lucide-react-native";
-import { ReactNode, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
-import Svg, { Circle, Line, Path, Rect } from "react-native-svg";
+import { ReactNode, useState } from "react";
+import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
+import { studentProfileSchema, type StudentProfileInput } from "@pulacash/shared";
 import { GlassCard } from "@/components/GlassCard";
 import { GradientButton } from "@/components/GradientButton";
 import { Screen } from "@/components/Screen";
-import { continueAsDemoStudent } from "@/lib/api";
-import { demoUser } from "@/lib/demo-data";
-import { colors, control, gradients, radius, shadows } from "@/theme/tokens";
+import { ApiError, apiFetch, resendVerification, signUp, verifyEmailCode } from "@/lib/api";
+import { endpoints } from "@/lib/endpoints";
+import { colors, control, iconSize, radius, shadows } from "@/theme/tokens";
 
-const steps = [
-  {
-    title: "Let's get you started",
-    body: "Sign up using your institutional student email to join PulaCash.",
-    action: "Continue with student email",
-    kind: "start"
-  },
-  {
-    title: "Confirm your student email",
-    body: "We've sent a verification link to your student email.",
-    action: "I've verified my email",
-    kind: "email"
-  },
-  {
-    title: "Verify your student ID",
-    body: "Upload a clear photo of your student ID card.",
-    action: "Upload ID",
-    kind: "id"
-  },
-  {
-    title: "How PulaCash works",
-    body: "Short-term help today. Stronger financial future tomorrow.",
-    action: "Next",
-    kind: "how"
-  },
-  {
-    title: "You're all set!",
-    body: "You're now ready to apply for your first emergency microloan.",
-    action: "Go to dashboard",
-    kind: "done"
-  }
-] as const;
-
-type StepKind = (typeof steps)[number]["kind"];
+type Institution = { id: string; name: string; emailDomain: string };
+const TOTAL_STEPS = 5;
 
 export default function OnboardingScreen() {
-  const [step, setStep] = useState(0);
-  const [finishing, setFinishing] = useState(false);
   const queryClient = useQueryClient();
-  const current = steps[step];
-  const isFinal = step === steps.length - 1;
+  const [step, setStep] = useState(0);
 
-  const dots = useMemo(
-    () =>
-      steps.map((item, index) => (
-        <View
-          key={item.kind}
-          className="h-2.5 w-2.5 rounded-full"
-          style={{ backgroundColor: index === step ? colors.blue : "#D9E6FB" }}
-        />
-      )),
-    [step]
-  );
+  // Form state, gathered across steps.
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const [code, setCode] = useState("");
+  const [institutionId, setInstitutionId] = useState("");
+  const [studentNumber, setStudentNumber] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const institutions = useQuery({
+    queryKey: ["institutions"],
+    queryFn: () => apiFetch<Institution[]>(endpoints.institutions),
+    initialData: []
+  });
+
+  const fail = (err: unknown) =>
+    setError(err instanceof ApiError ? err.message : "Something went wrong. Please try again.");
+
+  // Step 0 → register the account.
+  const register = useMutation({
+    mutationFn: () => signUp({ fullName: fullName.trim(), email: email.trim().toLowerCase(), password }),
+    onSuccess: (res) => {
+      setError(null);
+      if (res.demoVerificationCode) setCode(res.demoVerificationCode);
+      setStep(1);
+    },
+    onError: fail
+  });
+
+  // Step 1 → confirm the emailed code.
+  const verify = useMutation({
+    mutationFn: () => verifyEmailCode({ email: email.trim().toLowerCase(), code: code.trim() }),
+    onSuccess: () => {
+      setError(null);
+      setStep(2);
+    },
+    onError: fail
+  });
+
+  // Step 2 → save the student profile.
+  const saveProfile = useMutation({
+    mutationFn: () => {
+      const input: StudentProfileInput = {
+        fullName: fullName.trim(),
+        studentEmail: email.trim().toLowerCase(),
+        institutionId,
+        studentNumber: studentNumber.trim(),
+        phoneNumber: phoneNumber.trim()
+      };
+      const parsed = studentProfileSchema.safeParse(input);
+      if (!parsed.success) throw new ApiError(parsed.error.issues[0]?.message ?? "Check your details.", 400);
+      return apiFetch(endpoints.student.profile, { method: "POST", body: JSON.stringify(parsed.data) });
+    },
+    onSuccess: () => {
+      setError(null);
+      setStep(3);
+    },
+    onError: fail
+  });
+
+  // Step 3 → upload the student ID document (KYC). Admin then verifies it.
+  const uploadId = useMutation({
+    mutationFn: async () => {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: ["image/jpeg", "image/png", "application/pdf"],
+        copyToCacheDirectory: true
+      });
+      if (picked.canceled || !picked.assets?.[0]) return null;
+      const asset = picked.assets[0];
+      const mimeType = ["image/jpeg", "image/png", "application/pdf"].includes(asset.mimeType ?? "")
+        ? (asset.mimeType as string)
+        : "image/jpeg";
+      const meta = {
+        fileName: asset.name?.slice(0, 180) || `student-id-${Date.now()}.jpg`,
+        mimeType,
+        sizeBytes: Math.max(1, Math.min(asset.size ?? 100000, 5_000_000))
+      };
+      const target = await apiFetch<{ uploadUrl: string | null }>(endpoints.student.uploadId, {
+        method: "POST",
+        body: JSON.stringify(meta)
+      });
+      // When storage is configured the server returns a signed URL; push the bytes.
+      if (target.uploadUrl) {
+        const file = await fetch(asset.uri);
+        const blob = await file.blob();
+        await fetch(target.uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": mimeType } }).catch(
+          () => undefined
+        );
+      }
+      return target;
+    },
+    onSuccess: (result) => {
+      if (result === null) return; // user cancelled the picker
+      setError(null);
+      setStep(4);
+    },
+    onError: fail
+  });
 
   async function finish() {
-    setFinishing(true);
-    await continueAsDemoStudent();
     await queryClient.invalidateQueries();
     router.replace("/home");
   }
 
-  async function next() {
-    if (isFinal) {
-      await finish();
-      return;
-    }
-    setStep((value) => Math.min(value + 1, steps.length - 1));
-  }
+  const canRegister = fullName.trim().length >= 2 && /\S+@\S+\.\S+/.test(email) && password.length >= 8 && agreed;
+  const registerHint = !agreed && fullName && email && password ? "Accept the terms to continue." : null;
 
   return (
     <Screen tabBar={false} contentContainerStyle={{ flexGrow: 1 }}>
       <View className="flex-1 pb-2 pt-3">
-        <OnboardingHeader step={step} setStep={setStep} />
+        <Header step={step} onBack={() => (step === 0 ? router.back() : setStep((s) => Math.max(0, s - 1)))} />
 
-        <Text className="mt-6 text-3xl font-extrabold leading-tight text-pula-ink">{current.title}</Text>
-        <Text className="mt-3 max-w-[300px] text-base leading-6 text-pula-muted">{current.body}</Text>
+        {step === 0 ? (
+          <StepBody title="Create your account" body="Sign up with your institutional student email to join PulaCash.">
+            <GlassCard contentClassName="gap-4">
+              <Field icon={<UserRound color={colors.blue} size={iconSize.md} />} placeholder="Full name" value={fullName} onChangeText={setFullName} />
+              <Field icon={<AtSign color={colors.blue} size={iconSize.md} />} placeholder="Student email" value={email} onChangeText={setEmail} keyboardType="email-address" />
+              <Field icon={<LockKeyhole color={colors.blue} size={iconSize.md} />} placeholder="Password (min 8 characters)" value={password} onChangeText={setPassword} secureTextEntry />
+              <Pressable className="flex-row items-center gap-3" onPress={() => setAgreed((v) => !v)}>
+                <View className="h-7 w-7 items-center justify-center rounded-lg" style={{ backgroundColor: agreed ? colors.blue : colors.line }}>
+                  {agreed ? <Check color={colors.white} size={iconSize.sm} /> : null}
+                </View>
+                <Text className="flex-1 text-sm leading-5 text-pula-muted">
+                  I agree to the{" "}
+                  <Text className="font-extrabold text-pula-blue" onPress={() => router.push("/terms")}>Terms of Use</Text>
+                  {" "}and{" "}
+                  <Text className="font-extrabold text-pula-blue" onPress={() => router.push("/privacy")}>Privacy Policy</Text>.
+                </Text>
+              </Pressable>
+            </GlassCard>
+            <PrimaryAction
+              label="Create account"
+              loading={register.isPending}
+              disabled={!canRegister}
+              onPress={() => register.mutate()}
+              error={error ?? registerHint}
+            />
+          </StepBody>
+        ) : null}
 
-        <OnboardingArt kind={current.kind} />
-        <StepDetail kind={current.kind} />
+        {step === 1 ? (
+          <StepBody title="Confirm your email" body={`Enter the 6-digit code we sent to ${email}.`}>
+            <GlassCard contentClassName="gap-4">
+              <Field icon={<Mail color={colors.blue} size={iconSize.md} />} placeholder="6-digit code" value={code} onChangeText={setCode} keyboardType="number-pad" />
+              <Pressable onPress={() => resendVerification().then((r) => r.demoVerificationCode && setCode(r.demoVerificationCode)).catch(() => {})}>
+                <Text className="text-sm font-extrabold text-pula-blue">Resend code</Text>
+              </Pressable>
+            </GlassCard>
+            <PrimaryAction label="Verify email" loading={verify.isPending} disabled={!/^\d{6}$/.test(code)} onPress={() => verify.mutate()} error={error} />
+          </StepBody>
+        ) : null}
 
-        <View className="mt-auto pt-5">
-          {finishing ? (
-            <View className="items-center justify-center bg-pula-blue" style={{ height: control.height, borderRadius: radius.lg }}>
-              <ActivityIndicator color={colors.white} />
-            </View>
-          ) : (
-            <GradientButton label={current.action} onPress={next} showArrow={current.kind !== "id"} />
-          )}
+        {step === 2 ? (
+          <StepBody title="Your student profile" body="Tell us where you study so we can verify your enrolment.">
+            <GlassCard contentClassName="gap-3">
+              <Text className="text-sm font-bold uppercase text-pula-muted">Institution</Text>
+              {institutions.data.map((inst) => {
+                const selected = inst.id === institutionId;
+                return (
+                  <Pressable
+                    key={inst.id}
+                    className="flex-row items-center justify-between px-4 py-3"
+                    style={{ borderRadius: radius.md, backgroundColor: selected ? colors.blueSoft : colors.mist, borderWidth: 1, borderColor: selected ? colors.blue : "transparent" }}
+                    onPress={() => setInstitutionId(inst.id)}
+                  >
+                    <Text className="flex-1 font-semibold" style={{ color: selected ? colors.blue : colors.ink }}>{inst.name}</Text>
+                    {selected ? <Check color={colors.blue} size={iconSize.sm} /> : null}
+                  </Pressable>
+                );
+              })}
+            </GlassCard>
+            <GlassCard className="mt-4" contentClassName="gap-4">
+              <Field icon={<IdCard color={colors.blue} size={iconSize.md} />} placeholder="Student number" value={studentNumber} onChangeText={setStudentNumber} />
+              <Field icon={<Phone color={colors.blue} size={iconSize.md} />} placeholder="Phone number" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" />
+            </GlassCard>
+            <PrimaryAction
+              label="Save profile"
+              loading={saveProfile.isPending}
+              disabled={!institutionId || studentNumber.trim().length < 4 || phoneNumber.trim().length < 7}
+              onPress={() => saveProfile.mutate()}
+              error={error}
+            />
+          </StepBody>
+        ) : null}
 
-          {current.kind === "email" ? (
-            <Pressable className="mt-5 items-center" onPress={next}>
-              <Text className="text-sm font-extrabold text-pula-blue">Resend email (00:45)</Text>
-            </Pressable>
-          ) : null}
+        {step === 3 ? (
+          <StepBody title="Verify your student ID" body="Upload a clear photo or PDF of your student ID card. An admin reviews it before you can borrow.">
+            <GlassCard contentClassName="gap-4">
+              <SecurityRow icon={<ShieldCheck color={colors.blue} size={iconSize.md} />} title="Secure verification" body="Your document is stored privately" />
+              <SecurityRow icon={<LockKeyhole color={colors.blue} size={iconSize.md} />} title="For students only" body="Enrolled at recognised institutions" />
+            </GlassCard>
+            <PrimaryAction label="Upload ID document" loading={uploadId.isPending} onPress={() => uploadId.mutate()} error={error} />
+          </StepBody>
+        ) : null}
 
-          <View className="mt-8 flex-row justify-center gap-5">{dots}</View>
+        {step === 4 ? (
+          <StepBody title="You're almost set!" body="Your student ID is being reviewed. You'll be able to apply for a loan once it's verified.">
+            <GlassCard>
+              <View className="flex-row items-center gap-4">
+                <View className="h-14 w-14 items-center justify-center rounded-2xl bg-pula-mist">
+                  <CheckCircle2 color={colors.blue} size={28} />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-base font-extrabold text-pula-ink">Email verified · ID under review</Text>
+                  <Text className="mt-1 text-sm leading-5 text-pula-muted">Two-step verification keeps PulaCash students-only.</Text>
+                </View>
+              </View>
+            </GlassCard>
+            <PrimaryAction label="Go to dashboard" onPress={finish} />
+          </StepBody>
+        ) : null}
+
+        <View className="mt-auto flex-row justify-center gap-2 pt-6">
+          {Array.from({ length: TOTAL_STEPS }).map((_, index) => (
+            <View key={index} className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: index === step ? colors.blue : "#D9E6FB" }} />
+          ))}
         </View>
       </View>
     </Screen>
   );
 }
 
-function OnboardingHeader({ step, setStep }: { step: number; setStep: (value: number) => void }) {
+function Header({ step, onBack }: { step: number; onBack: () => void }) {
   return (
     <View className="flex-row items-center justify-between">
-      {step === 0 ? (
-        <Text className="text-3xl font-extrabold text-pula-blue">PulaCash</Text>
-      ) : (
-        <Pressable
-          accessibilityRole="button"
-          className="h-12 w-12 items-center justify-center rounded-full bg-white"
-          style={shadows.soft}
-          onPress={() => setStep(Math.max(step - 1, 0))}
-        >
-          <ArrowLeft color={colors.blue} size={22} strokeWidth={2.6} />
-        </Pressable>
-      )}
+      <Pressable accessibilityRole="button" className="h-12 w-12 items-center justify-center rounded-full bg-white" style={shadows.soft} onPress={onBack}>
+        <ArrowLeft color={colors.blue} size={22} strokeWidth={2.6} />
+      </Pressable>
       <View className="rounded-full bg-pula-mist px-5 py-2">
-        <Text className="text-sm font-extrabold text-pula-blue">
-          {step + 1} of {steps.length}
-        </Text>
+        <Text className="text-sm font-extrabold text-pula-blue">{step + 1} of {TOTAL_STEPS}</Text>
       </View>
       <View className="h-12 w-12" />
     </View>
   );
 }
 
-function OnboardingArt({ kind }: { kind: StepKind }) {
-  if (kind === "email") return <EmailArt />;
-  if (kind === "id") return <IdArt />;
-  if (kind === "how") return <HowArt />;
-  if (kind === "done") return <DoneArt />;
-  return <StartArt />;
-}
-
-function ArtShell({ children }: { children: ReactNode }) {
+function StepBody({ title, body, children }: { title: string; body: string; children: ReactNode }) {
   return (
-    <View className="my-8 h-64 items-center justify-center overflow-hidden rounded-[36px] bg-white" style={shadows.soft}>
-      <View className="absolute h-52 w-52 rounded-full bg-pula-mist" />
-      {children}
+    <View className="pt-6">
+      <Text className="text-3xl font-extrabold leading-tight text-pula-ink">{title}</Text>
+      <Text className="mt-3 max-w-[320px] text-base leading-6 text-pula-muted">{body}</Text>
+      <View className="mt-6">{children}</View>
     </View>
   );
 }
 
-function StartArt() {
+function PrimaryAction({
+  label,
+  onPress,
+  loading,
+  disabled,
+  error
+}: {
+  label: string;
+  onPress: () => void;
+  loading?: boolean;
+  disabled?: boolean;
+  error?: string | null;
+}) {
   return (
-    <ArtShell>
-      <View className="h-24 w-24 items-center justify-center rounded-[34px] bg-white" style={shadows.soft}>
-        <UserRound color={colors.blue} size={48} strokeWidth={1.8} />
-      </View>
-      <View className="mt-4 flex-row items-center gap-3">
-        <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
-          <Mail color={colors.blue} size={24} />
+    <View className="mt-6">
+      {error ? <Text className="mb-3 text-sm font-semibold text-red-500">{error}</Text> : null}
+      {loading ? (
+        <View className="items-center justify-center bg-pula-blue" style={{ height: control.height, borderRadius: radius.lg }}>
+          <ActivityIndicator color={colors.white} />
         </View>
-        <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
-          <ShieldCheck color={colors.blue} size={24} />
-        </View>
-      </View>
-    </ArtShell>
+      ) : (
+        <GradientButton label={label} onPress={onPress} disabled={disabled} />
+      )}
+    </View>
   );
 }
 
-function EmailArt() {
+function Field({
+  icon,
+  placeholder,
+  value,
+  onChangeText,
+  secureTextEntry,
+  keyboardType
+}: {
+  icon: ReactNode;
+  placeholder: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  secureTextEntry?: boolean;
+  keyboardType?: "default" | "email-address" | "number-pad" | "phone-pad";
+}) {
   return (
-    <ArtShell>
-      <Svg width={230} height={170} viewBox="0 0 230 170">
-        <Path d="M24 126c44-34 86-34 128 0" stroke="#BCD3F8" strokeWidth="3" strokeDasharray="8 10" fill="none" />
-        <Path d="M154 48l48-22-18 50-12-20-24-8z" fill="#2376FF" />
-        <Rect x="35" y="72" width="116" height="72" rx="14" fill="#F9FCFF" stroke="#8DB7F8" strokeWidth="2" />
-        <Path d="M42 82l51 37 51-37" stroke="#8DB7F8" strokeWidth="2.5" fill="none" />
-        <Circle cx="93" cy="108" r="22" fill="#075DFF" />
-        <Path d="M83 108l7 7 16-18" stroke="#FFFFFF" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </Svg>
-    </ArtShell>
-  );
-}
-
-function IdArt() {
-  return (
-    <ArtShell>
-      <View className="rounded-[24px] border-2 border-pula-blue p-4">
-        <View className="w-56 overflow-hidden rounded-2xl bg-white" style={shadows.soft}>
-          <LinearGradient colors={gradients.button} className="h-10 justify-center px-4">
-            <Text className="text-sm font-extrabold text-white">STUDENT ID</Text>
-          </LinearGradient>
-          <View className="flex-row gap-4 p-4">
-            <View className="h-14 w-14 items-center justify-center rounded-full bg-pula-mist">
-              <UserRound color={colors.blue} size={30} />
-            </View>
-            <View className="flex-1 justify-center gap-2">
-              <View className="h-2.5 w-20 rounded-full bg-pula-line" />
-              <View className="h-2.5 w-28 rounded-full bg-pula-line" />
-              <View className="h-2.5 w-24 rounded-full bg-pula-line" />
-            </View>
-          </View>
-          <View className="mx-4 mb-4 h-7 flex-row items-end gap-1">
-            {Array.from({ length: 15 }).map((_, index) => (
-              <View key={index} className="w-1.5 bg-pula-ink" style={{ height: index % 2 === 0 ? 24 : 16 }} />
-            ))}
-          </View>
-        </View>
-      </View>
-    </ArtShell>
-  );
-}
-
-function HowArt() {
-  return (
-    <ArtShell>
-      <Svg width={230} height={174} viewBox="0 0 230 174">
-        <Rect x="28" y="116" width="116" height="20" rx="10" fill="#DCEAFF" />
-        <Rect x="42" y="68" width="92" height="62" rx="12" fill="#FFFFFF" stroke="#8DB7F8" strokeWidth="2" />
-        <Rect x="58" y="84" width="56" height="30" rx="5" fill="#EAF2FF" />
-        <Line x1="162" y1="28" x2="162" y2="144" stroke="#075DFF" strokeWidth="4" strokeLinecap="round" />
-        {[36, 86, 136].map((cy, index) => (
-          <Circle key={cy} cx="162" cy={cy} r="15" fill="#075DFF" />
-        ))}
-        <Path d="M154 36l6 6 11-14" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Path d="M154 86l6 6 11-14" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        <Path d="M154 136l6 6 11-14" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-      </Svg>
-    </ArtShell>
-  );
-}
-
-function DoneArt() {
-  return (
-    <ArtShell>
-      <View className="h-28 w-28 items-center justify-center rounded-full bg-white" style={shadows.soft}>
-        <LinearGradient colors={gradients.button} className="h-24 w-24 items-center justify-center rounded-full">
-          <Check color={colors.white} size={56} strokeWidth={3} />
-        </LinearGradient>
-      </View>
-      <View className="absolute left-14 top-14 h-3 w-3 rounded-full bg-pula-blue" />
-      <View className="absolute right-16 top-20 h-3 w-3 rounded-full bg-pula-cyan" />
-      <View className="absolute bottom-16 left-20 h-3 w-3 rounded-full bg-pula-cyan" />
-    </ArtShell>
-  );
-}
-
-function StepDetail({ kind }: { kind: StepKind }) {
-  if (kind === "email") {
-    return (
-      <GlassCard className="mb-1">
-        <Text className="text-base font-extrabold text-pula-ink">{demoUser.email}</Text>
-        <Text className="mt-2 text-sm leading-5 text-pula-muted">Check your inbox and click the link to verify.</Text>
-      </GlassCard>
-    );
-  }
-
-  if (kind === "id") {
-    return (
-      <GlassCard className="mb-1" contentClassName="gap-4">
-        <SecurityRow icon={<ShieldCheck color={colors.blue} size={24} />} title="Secure verification" body="Your data is protected" />
-        <SecurityRow icon={<LockKeyhole color={colors.blue} size={24} />} title="For students only" body="Enrolled at recognized institutions" />
-      </GlassCard>
-    );
-  }
-
-  if (kind === "how") {
-    return (
-      <GlassCard className="mb-1" contentClassName="gap-4">
-        {["Apply for a loan", "Get funds fast", "Repay on time", "Build your reliability score"].map((item) => (
-          <View key={item} className="flex-row items-center gap-3">
-            <View className="h-9 w-9 items-center justify-center rounded-full bg-pula-blue">
-              <CheckCircle2 color={colors.white} size={20} />
-            </View>
-            <Text className="flex-1 text-base font-extrabold text-pula-ink">{item}</Text>
-          </View>
-        ))}
-      </GlassCard>
-    );
-  }
-
-  if (kind === "done") {
-    return (
-      <GlassCard className="mb-1">
-        <View className="flex-row items-center gap-4">
-          <View className="h-14 w-14 items-center justify-center rounded-2xl bg-pula-mist">
-            <Gift color={colors.blue} size={28} />
-          </View>
-          <View className="flex-1">
-            <Text className="text-base font-extrabold text-pula-ink">Small loans. Big impact.</Text>
-            <Text className="mt-1 text-sm leading-5 text-pula-muted">Build your reliability and unlock larger amounts over time.</Text>
-          </View>
-        </View>
-      </GlassCard>
-    );
-  }
-
-  return (
-    <View className="mb-1 flex-row items-center justify-center gap-2">
-      <ShieldCheck color={colors.blue} size={20} />
-      <Text className="text-sm font-semibold text-pula-muted">Student only. Secure and verified.</Text>
+    <View className="h-14 flex-row items-center bg-pula-mist px-4" style={{ borderRadius: radius.md }}>
+      {icon}
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#8B96A8"
+        secureTextEntry={secureTextEntry}
+        keyboardType={keyboardType}
+        autoCapitalize={keyboardType === "email-address" ? "none" : "sentences"}
+        autoCorrect={false}
+        className="ml-3 flex-1 text-base font-semibold text-pula-ink"
+      />
     </View>
   );
 }

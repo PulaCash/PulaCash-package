@@ -5,7 +5,9 @@ export const endpoints = {
   auth: {
     register: "/auth/register",
     login: "/auth/login",
+    logout: "/auth/logout",
     verifyEmail: "/auth/verify-email",
+    resendVerification: "/auth/resend-verification",
     me: "/me"
   },
   institutions: "/institutions",
@@ -30,6 +32,7 @@ export const endpoints = {
     reject: (id: string) => `/admin/loans/${id}/reject`,
     students: "/admin/students",
     studentById: (id: string) => `/admin/students/${id}`,
+    verifyId: (id: string) => `/admin/students/${id}/verify-id`,
     blacklist: (id: string) => `/admin/students/${id}/blacklist`
   }
 } as const;

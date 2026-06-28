@@ -15,6 +15,8 @@ import {
   VerificationStatus
 } from "@pulacash/shared";
 import { createDb, type SqliteDb } from "../db/client.js";
+import { adminCredentials, isProd, sessionTtlMs } from "../env.js";
+import { generateVerificationCode, hashPassword, hashToken, issueSessionToken, verifyPassword } from "../lib/password.js";
 
 type Institution = {
   id: string;
@@ -49,6 +51,13 @@ const now = () => new Date().toISOString();
 const today = () => new Date().toISOString().slice(0, 10);
 const id = () => crypto.randomUUID();
 
+// Email-verification codes are short-lived and rate-limited to blunt brute force.
+const VERIFICATION_TTL_MS = 15 * 60 * 1000;
+const MAX_VERIFICATION_ATTEMPTS = 5;
+
+type SessionRecord = { userId: string; expiresAt: number };
+type VerificationRecord = { code: string; expiresAt: number; attempts: number };
+
 /**
  * In-memory working set backed by SQLite. The Maps keep reads simple and fast;
  * every mutation is written through to SQLite so state survives a restart. On
@@ -59,7 +68,10 @@ export class PulaCashRepository {
   private db: SqliteDb;
   private users = new Map<string, User>();
   private usersByEmail = new Map<string, string>();
-  private tokens = new Map<string, string>();
+  // Bearer sessions keyed by the SHA-256 hash of the token (never the raw token).
+  private tokens = new Map<string, SessionRecord>();
+  // Password hashes, kept out of the User contract so they never reach a response.
+  private passwordByUser = new Map<string, string>();
   private institutions = new Map<string, Institution>();
   private profiles = new Map<string, StudentProfile>();
   private applications = new Map<string, LoanApplication>();
@@ -67,24 +79,26 @@ export class PulaCashRepository {
   private repayments = new Map<string, Repayment>();
   private scores = new Map<string, ReliabilityScore>();
   private auditLogs: AuditLog[] = [];
-  // Ephemeral email-verification codes (userId -> code). Short-lived by nature,
-  // so they are intentionally not persisted across restarts.
-  private verificationCodes = new Map<string, string>();
+  // Ephemeral email-verification codes (userId -> code + expiry + attempts).
+  // Short-lived by nature, so they are intentionally not persisted across restarts.
+  private verificationCodes = new Map<string, VerificationRecord>();
+  private seeded = false;
 
   constructor(db: SqliteDb = createDb()) {
     this.db = db;
     this.load();
-    if (this.users.size === 0) {
-      this.seed();
+  }
+
+  /**
+   * Seed first-boot data (admin + dev fixtures). Async because hashing the admin
+   * password is async; call once before the app starts serving requests.
+   */
+  async ready(): Promise<this> {
+    if (!this.seeded && this.users.size === 0) {
+      await this.seed();
     }
-  }
-
-  get demoStudentToken() {
-    return "demo-student-token";
-  }
-
-  get demoAdminToken() {
-    return "demo-admin-token";
+    this.seeded = true;
+    return this;
   }
 
   listInstitutions() {
@@ -93,11 +107,38 @@ export class PulaCashRepository {
 
   getUserByToken(token: string | undefined) {
     if (!token) return null;
-    const userId = this.tokens.get(token);
-    return userId ? this.users.get(userId) ?? null : null;
+    const hash = hashToken(token);
+    const session = this.tokens.get(hash);
+    if (!session) return null;
+    if (session.expiresAt <= Date.now()) {
+      this.revokeTokenHash(hash);
+      return null;
+    }
+    return this.users.get(session.userId) ?? null;
   }
 
-  register(input: { email: string; fullName: string }) {
+  /** Issue a fresh opaque session token for a user and persist only its hash. */
+  private startSession(userId: string): string {
+    const { token, tokenHash } = issueSessionToken();
+    const expiresAt = Date.now() + sessionTtlMs;
+    this.tokens.set(tokenHash, { userId, expiresAt });
+    this.persistToken(tokenHash, userId, expiresAt);
+    return token;
+  }
+
+  private revokeTokenHash(hash: string) {
+    this.tokens.delete(hash);
+    this.db.prepare("DELETE FROM auth_tokens WHERE token = ?").run(hash);
+  }
+
+  /** Revoke the caller's bearer token (logout). No-op for an unknown token. */
+  logout(token: string | undefined) {
+    if (!token) return { ok: true };
+    this.revokeTokenHash(hashToken(token));
+    return { ok: true };
+  }
+
+  async register(input: { email: string; fullName: string; password: string }) {
     const email = input.email.toLowerCase();
     if (this.usersByEmail.has(email)) {
       throw new RepositoryError(409, "A PulaCash account already exists for this student email.");
@@ -108,12 +149,13 @@ export class PulaCashRepository {
       email,
       fullName: input.fullName,
       role: "student",
-      isBlacklisted: false
+      isBlacklisted: false,
+      emailVerified: false
     };
-    const token = `student-${user.id}`;
+    const passwordHash = await hashPassword(input.password);
     this.users.set(user.id, user);
     this.usersByEmail.set(email, user.id);
-    this.tokens.set(token, user.id);
+    this.passwordByUser.set(user.id, passwordHash);
     const score: ReliabilityScore = {
       studentId: user.id,
       score: defaultLoanLimits.defaultScore,
@@ -123,38 +165,64 @@ export class PulaCashRepository {
     this.scores.set(user.id, score);
 
     this.persistUser(user);
-    this.persistToken(token, user.id);
     this.persistScore(score);
 
-    const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
-    this.verificationCodes.set(user.id, verificationCode);
+    const token = this.startSession(user.id);
+    const verificationCode = this.issueVerificationCode(user.id);
 
-    return {
-      token,
-      user,
-      verificationCode
-    };
+    return { token, user, verificationCode };
   }
 
-  login(email: string) {
+  async login(email: string, password: string) {
     const userId = this.usersByEmail.get(email.toLowerCase());
-    if (!userId) throw new RepositoryError(401, "Invalid login details.");
-    const user = this.users.get(userId);
-    if (!user) throw new RepositoryError(401, "Invalid login details.");
-    const token = user.role === "admin" ? this.demoAdminToken : `student-${user.id}`;
-    this.tokens.set(token, user.id);
-    this.persistToken(token, user.id);
+    const user = userId ? this.users.get(userId) : undefined;
+    // Always run the (expensive) verification so a missing account and a wrong
+    // password take indistinguishable time, and never reveal which one failed.
+    const ok = await verifyPassword(password, userId ? this.passwordByUser.get(userId) : undefined);
+    if (!user || !ok) throw new RepositoryError(401, "Invalid email or password.");
+
+    const token = this.startSession(user.id);
     return { token, user };
+  }
+
+  private issueVerificationCode(userId: string): string {
+    const code = generateVerificationCode();
+    this.verificationCodes.set(userId, { code, expiresAt: Date.now() + VERIFICATION_TTL_MS, attempts: 0 });
+    return code;
+  }
+
+  /** Re-issue a verification code for the signed-in user (resend flow). */
+  resendVerification(user: User) {
+    if (user.emailVerified) throw new RepositoryError(409, "This email is already verified.");
+    return this.issueVerificationCode(user.id);
   }
 
   verifyEmail(email: string, code: string) {
     const userId = this.usersByEmail.get(email.toLowerCase());
-    if (!userId) throw new RepositoryError(404, "No account found for this email.");
-    const expected = this.verificationCodes.get(userId);
-    if (!expected || expected !== code) {
-      throw new RepositoryError(400, "That verification code is invalid or has expired.");
+    const record = userId ? this.verificationCodes.get(userId) : undefined;
+    // Generic error everywhere so this can't be used to probe which emails exist.
+    const invalid = () => new RepositoryError(400, "That verification code is invalid or has expired.");
+    if (!userId || !record) throw invalid();
+    if (Date.now() > record.expiresAt) {
+      this.verificationCodes.delete(userId);
+      throw invalid();
     }
+    if (record.attempts >= MAX_VERIFICATION_ATTEMPTS) {
+      this.verificationCodes.delete(userId);
+      throw new RepositoryError(429, "Too many attempts. Request a new verification code.");
+    }
+    if (record.code !== code) {
+      record.attempts += 1;
+      throw invalid();
+    }
+
     this.verificationCodes.delete(userId);
+    const user = this.users.get(userId);
+    if (user && !user.emailVerified) {
+      const next: User = { ...user, emailVerified: true };
+      this.users.set(userId, next);
+      this.persistUser(next);
+    }
     const profile = this.profiles.get(userId);
     if (profile && profile.idStatus === "email_pending") {
       const next = { ...profile, idStatus: "email_verified" as VerificationStatus };
@@ -166,17 +234,27 @@ export class PulaCashRepository {
 
   upsertProfile(user: User, input: StudentProfileInput) {
     this.ensureStudent(user);
+    // First factor: the student email must be confirmed before a profile exists.
+    if (!user.emailVerified) {
+      throw new RepositoryError(403, "Verify your student email before completing your profile.");
+    }
     const duplicate = [...this.profiles.values()].find(
       (profile) => profile.studentNumber === input.studentNumber && profile.userId !== user.id
     );
     if (duplicate) throw new RepositoryError(409, "This student ID number is already linked to another account.");
 
-    // New accounts are treated as id_pending so a freshly registered student can
-    // borrow straight away (the loan gate accepts id_pending/verified).
+    // Preserve an already-verified ID status on edit; otherwise the profile starts
+    // at email_verified (email done, ID document not yet reviewed).
+    const existing = this.profiles.get(user.id);
+    const idStatus: VerificationStatus =
+      existing && (existing.idStatus === "verified" || existing.idStatus === "id_pending")
+        ? existing.idStatus
+        : "email_verified";
     const profile: StudentProfile = {
       ...input,
       userId: user.id,
-      idStatus: "id_pending"
+      idStatus,
+      idDocumentPath: existing?.idDocumentPath
     };
     this.profiles.set(user.id, profile);
     this.persistProfile(profile);
@@ -233,8 +311,13 @@ export class PulaCashRepository {
     this.ensureStudent(user);
     if (user.isBlacklisted) throw new RepositoryError(403, "This account is not eligible for new loans.");
     const profile = this.requireProfile(user.id);
-    if (!["id_pending", "verified"].includes(profile.idStatus)) {
-      throw new RepositoryError(403, "Complete student verification before applying.");
+    // Two-factor identity gate: a confirmed student email *and* a reviewed student
+    // ID (status `verified`) are both required before any money can move.
+    if (!user.emailVerified) {
+      throw new RepositoryError(403, "Verify your student email before applying for a loan.");
+    }
+    if (profile.idStatus !== "verified") {
+      throw new RepositoryError(403, "Your student ID must be verified before you can borrow.");
     }
     const activeLoan = [...this.loans.values()].some(
       (loan) => loan.studentId === user.id && !["repaid", "rejected"].includes(loan.status)
@@ -313,6 +396,7 @@ export class PulaCashRepository {
     return {
       pendingApplications: [...this.applications.values()].filter((application) => application.status === "pending_review")
         .length,
+      pendingIdVerifications: [...this.profiles.values()].filter((profile) => profile.idStatus === "id_pending").length,
       activeLoans: [...this.loans.values()].filter((loan) => !["repaid", "rejected"].includes(loan.status)).length,
       repaymentsDue: [...this.repayments.values()].filter((repayment) => repayment.status === "due").length,
       overdueLoans: [...this.repayments.values()].filter((repayment) => repayment.status === "overdue").length,
@@ -370,6 +454,25 @@ export class PulaCashRepository {
 
   getStudent(user: User, studentId: string) {
     this.ensureAdmin(user);
+    return this.studentSummary(studentId);
+  }
+
+  /**
+   * Admin decision on an uploaded student ID (the KYC step). Approving moves the
+   * student to `verified` — the only status that unlocks borrowing.
+   */
+  verifyStudentId(user: User, studentId: string, approved: boolean, reason?: string) {
+    this.ensureAdmin(user);
+    const profile = this.profiles.get(studentId);
+    if (!profile) throw new RepositoryError(404, "Student profile not found.");
+    if (profile.idStatus !== "id_pending") {
+      throw new RepositoryError(409, "There is no pending ID document to review for this student.");
+    }
+    const idStatus: VerificationStatus = approved ? "verified" : "rejected";
+    const next: StudentProfile = { ...profile, idStatus };
+    this.profiles.set(studentId, next);
+    this.persistProfile(next);
+    this.log(user, approved ? "student.id_verified" : "student.id_rejected", "user", studentId, { reason });
     return this.studentSummary(studentId);
   }
 
@@ -489,15 +592,30 @@ export class PulaCashRepository {
   // --- Persistence helpers (write-through to SQLite) ---
 
   private persistUser(user: User) {
+    // The password hash is pulled from the in-memory map so callers that only have
+    // a User (e.g. blacklist) never accidentally wipe the stored credential.
+    const passwordHash = this.passwordByUser.get(user.id) ?? null;
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO users (id, email, full_name, role, is_blacklisted, created_at) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM users WHERE id = ?), ?))"
+        "INSERT OR REPLACE INTO users (id, email, full_name, role, is_blacklisted, password_hash, email_verified, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM users WHERE id = ?), ?))"
       )
-      .run(user.id, user.email, user.fullName, user.role, user.isBlacklisted ? 1 : 0, user.id, now());
+      .run(
+        user.id,
+        user.email,
+        user.fullName,
+        user.role,
+        user.isBlacklisted ? 1 : 0,
+        passwordHash,
+        user.emailVerified ? 1 : 0,
+        user.id,
+        now()
+      );
   }
 
-  private persistToken(token: string, userId: string) {
-    this.db.prepare("INSERT OR REPLACE INTO auth_tokens (token, user_id) VALUES (?, ?)").run(token, userId);
+  private persistToken(tokenHash: string, userId: string, expiresAt: number) {
+    this.db
+      .prepare("INSERT OR REPLACE INTO auth_tokens (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)")
+      .run(tokenHash, userId, new Date(expiresAt).toISOString(), now());
   }
 
   private persistInstitution(institution: Institution) {
@@ -598,13 +716,20 @@ export class PulaCashRepository {
         email: row.email,
         fullName: row.full_name,
         role: row.role,
-        isBlacklisted: Boolean(row.is_blacklisted)
+        isBlacklisted: Boolean(row.is_blacklisted),
+        emailVerified: Boolean(row.email_verified)
       };
       this.users.set(user.id, user);
       this.usersByEmail.set(user.email, user.id);
+      if (row.password_hash) this.passwordByUser.set(user.id, row.password_hash);
     }
     for (const row of this.db.prepare("SELECT * FROM auth_tokens").all() as any[]) {
-      this.tokens.set(row.token, row.user_id);
+      // Skip legacy/raw tokens without an expiry, and drop any already expired —
+      // only live, hash-stored sessions are honoured.
+      const expiresAt = row.expires_at ? Date.parse(row.expires_at) : NaN;
+      if (Number.isFinite(expiresAt) && expiresAt > Date.now()) {
+        this.tokens.set(row.token, { userId: row.user_id, expiresAt });
+      }
     }
     for (const row of this.db.prepare("SELECT * FROM student_profiles").all() as any[]) {
       this.profiles.set(row.user_id, {
@@ -666,9 +791,8 @@ export class PulaCashRepository {
     }
   }
 
-  private seed() {
+  private async seed() {
     const institutionId = "9e3b22ba-9951-486e-a31c-e385fd43541a";
-    const studentId = "8a287637-708e-4382-b166-57f2d9b18121";
     const adminId = "685a1b45-51bb-4de0-9846-1d37a681c9e9";
 
     const institutionNames: Record<string, string> = {
@@ -680,7 +804,7 @@ export class PulaCashRepository {
       "botho.ac.bw": "Botho University"
     };
 
-    // University of Botswana keeps a fixed id so seeded demo data stays stable.
+    // University of Botswana keeps a fixed id so seeded data stays stable.
     this.institutions.set(institutionId, {
       id: institutionId,
       name: institutionNames["ub.ac.bw"] ?? "University of Botswana",
@@ -699,66 +823,72 @@ export class PulaCashRepository {
       this.persistInstitution(institution);
     }
 
-    const student: User = {
-      id: studentId,
-      email: "thatayotlhe.tsenang@ub.ac.bw",
-      fullName: "Thatayotlhe Tsenang",
-      role: "student",
-      isBlacklisted: false
-    };
+    // The admin account is always seeded from environment credentials with a real
+    // password hash. There are no hardcoded/backdoor tokens.
     const admin: User = {
       id: adminId,
-      email: "admin@ub.ac.bw",
-      fullName: "PulaCash Admin",
+      email: adminCredentials.email,
+      fullName: adminCredentials.name,
       role: "admin",
-      isBlacklisted: false
+      isBlacklisted: false,
+      emailVerified: true
     };
-
-    this.users.set(student.id, student);
     this.users.set(admin.id, admin);
-    this.usersByEmail.set(student.email, student.id);
     this.usersByEmail.set(admin.email, admin.id);
-    this.persistUser(student);
+    this.passwordByUser.set(admin.id, await hashPassword(adminCredentials.password));
     this.persistUser(admin);
 
-    this.tokens.set(this.demoStudentToken, student.id);
-    this.tokens.set(this.demoAdminToken, admin.id);
-    this.persistToken(this.demoStudentToken, student.id);
-    this.persistToken(this.demoAdminToken, admin.id);
+    // Dev/test-only fixtures: a neutral demo student (no real PII) plus one pending
+    // application so the admin review queue isn't empty. Never seeded in production.
+    if (!isProd) {
+      const studentId = "8a287637-708e-4382-b166-57f2d9b18121";
+      const student: User = {
+        id: studentId,
+        email: "demo.student@ub.ac.bw",
+        fullName: "Demo Student",
+        role: "student",
+        isBlacklisted: false,
+        emailVerified: true
+      };
+      this.users.set(student.id, student);
+      this.usersByEmail.set(student.email, student.id);
+      this.passwordByUser.set(student.id, await hashPassword("DemoStudent!2026"));
+      this.persistUser(student);
 
-    const profile: StudentProfile = {
-      userId: student.id,
-      fullName: student.fullName,
-      studentEmail: student.email,
-      institutionId,
-      studentNumber: "UB2026001",
-      phoneNumber: "+267 71 234 567",
-      idStatus: "verified",
-      idDocumentPath: `student-ids/${student.id}/student-id.png`
-    };
-    this.profiles.set(student.id, profile);
-    this.persistProfile(profile);
+      const profile: StudentProfile = {
+        userId: student.id,
+        fullName: student.fullName,
+        studentEmail: student.email,
+        institutionId,
+        studentNumber: "UB2026001",
+        phoneNumber: "+267 70 000 000",
+        idStatus: "verified",
+        idDocumentPath: `${student.id}/student-id.png`
+      };
+      this.profiles.set(student.id, profile);
+      this.persistProfile(profile);
 
-    const score: ReliabilityScore = {
-      studentId: student.id,
-      score: defaultLoanLimits.defaultScore,
-      onTimeRepayments: 2,
-      lateRepayments: 0
-    };
-    this.scores.set(student.id, score);
-    this.persistScore(score);
+      const score: ReliabilityScore = {
+        studentId: student.id,
+        score: defaultLoanLimits.defaultScore,
+        onTimeRepayments: 2,
+        lateRepayments: 0
+      };
+      this.scores.set(student.id, score);
+      this.persistScore(score);
 
-    const application: LoanApplication = {
-      id: "e37a7d60-67f6-43cc-bdbc-3dd682674a66",
-      studentId: student.id,
-      amount: 600,
-      purpose: "Books and supplies",
-      expectedRepaymentDate: "2026-07-15",
-      status: "pending_review",
-      createdAt: now()
-    };
-    this.applications.set(application.id, application);
-    this.persistApplication(application);
+      const application: LoanApplication = {
+        id: "e37a7d60-67f6-43cc-bdbc-3dd682674a66",
+        studentId: student.id,
+        amount: 600,
+        purpose: "Books and supplies",
+        expectedRepaymentDate: "2026-07-15",
+        status: "pending_review",
+        createdAt: now()
+      };
+      this.applications.set(application.id, application);
+      this.persistApplication(application);
+    }
   }
 }
 

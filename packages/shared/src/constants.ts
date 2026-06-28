@@ -1,5 +1,24 @@
 export const appName = "PulaCash";
 
+/**
+ * Legal / regulatory facts shared by the in-app Terms, Privacy Policy, and loan
+ * agreement screens and the hostable Markdown copies in the repo root. PulaCash
+ * operates under Botswana law; the contact address is the platform admin mailbox.
+ */
+export const legal = {
+  company: "PulaCash",
+  jurisdiction: "Republic of Botswana",
+  governingLaw: "the laws of the Republic of Botswana",
+  venue: "the courts of the Republic of Botswana",
+  contactEmail: "tsenangthatayotlhe04@gmail.com",
+  effectiveDate: "2026-06-28",
+  regulator: "Non-Bank Financial Institutions Regulatory Authority (NBFIRA)",
+  dataProtectionLaw: "Botswana Data Protection Act, 2018"
+} as const;
+
+/** Minimum password length accepted at registration (kept in sync with the schema). */
+export const minPasswordLength = 8;
+
 export const allowedInstitutionDomains = [
   "ub.ac.bw",
   "buan.ac.bw",

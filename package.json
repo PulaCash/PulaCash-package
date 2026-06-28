@@ -1,7 +1,7 @@
 {
   "name": "pulacash",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "PulaCash MVP: iOS-first student microloan platform for Botswana university students.",
   "workspaces": [
     "apps/*",

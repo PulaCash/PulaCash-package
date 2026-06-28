@@ -12,10 +12,15 @@ import { studentRoutes } from "./routes/student.js";
 import { PulaCashRepository, RepositoryError } from "./services/repository.js";
 
 export async function createApp(repository = new PulaCashRepository()) {
+  // Seed first-boot data (admin etc.) before the app accepts any traffic.
+  await repository.ready();
+
   const app = Fastify({
     logger: loggerOptions,
     genReqId,
-    trustProxy: true,
+    // Only honour X-Forwarded-For behind a trusted proxy/LB; otherwise a direct
+    // peer could spoof its IP and bypass the IP-keyed rate limits.
+    trustProxy: env.TRUST_PROXY,
     // DoS mitigations: cap body size and drop slow/idle connections.
     bodyLimit: 256 * 1024,
     requestTimeout: 15_000,
@@ -25,9 +30,12 @@ export async function createApp(repository = new PulaCashRepository()) {
   // Security headers. CSP is irrelevant for a JSON API and only adds noise.
   await app.register(helmet, { contentSecurityPolicy: false });
 
+  // The API authenticates with bearer tokens (not cookies), so credentialed CORS
+  // is never needed — keeping it off lets dev reflect any origin safely, while
+  // production is pinned to an explicit allow-list (enforced in env.ts).
   await app.register(cors, {
     origin: env.APP_ORIGIN === "*" ? true : env.APP_ORIGIN.split(","),
-    credentials: true
+    credentials: false
   });
 
   // Baseline in-memory rate limit (always on); Upstash adds a distributed layer.
@@ -44,12 +52,19 @@ export async function createApp(repository = new PulaCashRepository()) {
       return;
     }
     const fastifyError = error as { statusCode?: number; validation?: unknown };
+    if (fastifyError.validation) {
+      reply.status(400).send({ error: "Invalid request." });
+      return;
+    }
     if (fastifyError.statusCode === 429) {
       reply.status(429).send({ error: "Too many requests. Please slow down." });
       return;
     }
-    if (fastifyError.validation) {
-      reply.status(400).send({ error: "Invalid request." });
+    // Honour Fastify's own client-error codes (malformed JSON → 400, payload too
+    // large → 413, etc.) instead of masking them as an opaque 500.
+    const status = fastifyError.statusCode;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      reply.status(status).send({ error: status === 400 ? "Invalid request." : "Request could not be processed." });
       return;
     }
 

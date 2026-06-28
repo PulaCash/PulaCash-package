@@ -7,13 +7,14 @@ import {
   blacklistStudentSchema,
   dashboardSchema,
   loanApplySchema,
-  loanStatusSchema,
   repaymentInitiateSchema,
+  loanStatusSchema,
   repaymentStatusSchema,
   studentProfileSchema,
   studentUploadIdSchema,
   userSchema,
-  verificationStatusSchema
+  verificationStatusSchema,
+  verifyStudentSchema
 } from "./schemas.js";
 
 export type AuthRegisterInput = z.infer<typeof authRegisterSchema>;
@@ -25,6 +26,7 @@ export type LoanApplyInput = z.infer<typeof loanApplySchema>;
 export type RepaymentInitiateInput = z.infer<typeof repaymentInitiateSchema>;
 export type AdminLoanDecisionInput = z.infer<typeof adminLoanDecisionSchema>;
 export type BlacklistStudentInput = z.infer<typeof blacklistStudentSchema>;
+export type VerifyStudentInput = z.infer<typeof verifyStudentSchema>;
 export type User = z.infer<typeof userSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;
 export type LoanStatus = z.infer<typeof loanStatusSchema>;
@@ -74,6 +76,7 @@ export type LoanApplyResult =
 
 export type AdminDashboard = {
   pendingApplications: number;
+  pendingIdVerifications: number;
   activeLoans: number;
   repaymentsDue: number;
   overdueLoans: number;
