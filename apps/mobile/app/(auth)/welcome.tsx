@@ -35,11 +35,7 @@ export default function WelcomeScreen() {
             paddingBottom: insets.bottom + 28
           }}
         >
-          <View className="h-16 w-16 items-center justify-center rounded-2xl bg-white" style={shadows.soft}>
-            <Text className="text-4xl font-extrabold text-pula-blue">P</Text>
-          </View>
-
-          <Text className="mt-7 text-4xl font-extrabold leading-tight text-white">
+          <Text className="text-4xl font-extrabold leading-tight text-white">
             Student money,{"\n"}on demand
           </Text>
           <Text className="mt-4 text-base font-medium leading-6 text-white">
