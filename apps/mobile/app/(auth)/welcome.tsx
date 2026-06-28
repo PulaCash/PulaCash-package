@@ -25,12 +25,15 @@ export default function WelcomeScreen() {
           colors={gradients.bluePanel}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          className="mt-auto px-8 pt-16"
+          className="mt-auto px-8"
           style={{
             borderTopLeftRadius: 200,
             borderTopRightRadius: 200,
             marginHorizontal: -38,
             paddingHorizontal: 58,
+            // Top padding keeps the heading clear of the rounded corners (so it sits
+            // on solid blue, not the white curve) while keeping the panel tall.
+            paddingTop: 88,
             // Bleed past the home indicator; keep content above it.
             paddingBottom: insets.bottom + 28
           }}
