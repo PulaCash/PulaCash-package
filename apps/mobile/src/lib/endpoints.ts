@@ -38,6 +38,12 @@ export const endpoints = {
   payments: {
     mine: "/payments/me"
   },
+  feedback: {
+    list: "/feedback",
+    create: "/feedback",
+    vote: (id: string) => `/feedback/${id}/vote`,
+    remove: (id: string) => `/feedback/${id}`
+  },
   admin: {
     dashboard: "/admin/dashboard",
     loanApplications: "/admin/loan-applications",

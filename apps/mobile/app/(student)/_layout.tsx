@@ -92,6 +92,7 @@ export default function StudentTabs() {
       <Tabs.Screen name="history" options={{ href: null }} />
       <Tabs.Screen name="loan-status" options={{ href: null }} />
       <Tabs.Screen name="membership" options={{ href: null }} />
+      <Tabs.Screen name="feedback" options={{ href: null }} />
     </Tabs>
   );
 }

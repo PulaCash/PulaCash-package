@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { ChevronRight, FileText, HelpCircle, LogOut, ScrollText, Shield, Sparkles, Trash2 } from "lucide-react-native";
+import { ChevronRight, FileText, HelpCircle, LogOut, MessageSquare, ScrollText, Shield, Sparkles, Trash2 } from "lucide-react-native";
 import { Children, Fragment, ReactNode, useState } from "react";
 import { ActivityIndicator, Linking, Pressable, Text, TextInput, View } from "react-native";
 import { Dashboard, legal } from "@pulacash/shared";
@@ -76,6 +76,11 @@ export default function MoreScreen() {
       </SettingsGroup>
 
       <SettingsGroup title="Support">
+        <SettingsRow
+          icon={<MessageSquare color={colors.blue} size={iconSize.md} />}
+          label="Feedback board"
+          onPress={() => router.push("/feedback")}
+        />
         <SettingsRow
           icon={<HelpCircle color={colors.blue} size={iconSize.md} />}
           label="Help & support"

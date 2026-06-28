@@ -1,43 +1,44 @@
 import type { FastifyBaseLogger } from "fastify";
 import { env, features } from "../env.js";
+import { RepositoryError } from "./repository.js";
 import { getSupabaseAdmin } from "./supabase.js";
 
-export type SignedUpload = {
+export type StoredDocument = {
   /** Object path inside the bucket. */
   path: string;
-  /** Signed URL the client PUTs the file to (null when storage isn't configured). */
-  uploadUrl: string | null;
-  /** Token bound to the signed upload (Supabase returns this). */
-  token: string | null;
   bucket: string;
+  /** True when the bytes were actually written to managed storage (vs dev fallback). */
+  stored: boolean;
 };
 
 /**
- * Create a one-time signed upload URL for a student ID document. The Supabase
- * service-role key stays on the server: the client only ever receives a scoped,
- * short-lived signed URL. Falls back to a deterministic path (no URL) in dev so
- * the flow still works without Supabase.
+ * Store a student ID document. The file is uploaded to Supabase Storage **from the
+ * backend** using the server-only service-role key — the client never talks to
+ * storage directly. Falls back to a deterministic path (no write) in dev so the flow
+ * still works without Supabase configured.
  */
-export async function createIdUploadTarget(
+export async function uploadIdDocument(
   userId: string,
   fileName: string,
+  mimeType: string,
+  base64: string,
   log: FastifyBaseLogger
-): Promise<SignedUpload> {
+): Promise<StoredDocument> {
   const bucket = env.SUPABASE_STORAGE_BUCKET;
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `${userId}/${Date.now()}-${safeName}`;
 
   const supabase = getSupabaseAdmin();
   if (!features.supabase || !supabase) {
-    log.info({ path }, "Supabase Storage not configured — returning dev upload path.");
-    return { path, uploadUrl: null, token: null, bucket };
+    log.info({ path }, "Supabase Storage not configured — recording dev path only.");
+    return { path, bucket, stored: false };
   }
 
-  const { data, error } = await supabase.storage.from(bucket).createSignedUploadUrl(path);
-  if (error || !data) {
-    log.error({ err: error }, "Failed to create signed upload URL.");
-    return { path, uploadUrl: null, token: null, bucket };
+  const buffer = Buffer.from(base64, "base64");
+  const { error } = await supabase.storage.from(bucket).upload(path, buffer, { contentType: mimeType, upsert: false });
+  if (error) {
+    log.error({ err: error }, "Failed to store ID document.");
+    throw new RepositoryError(502, "Could not store your ID right now. Please try again.");
   }
-
-  return { path: data.path, uploadUrl: data.signedUrl, token: data.token, bucket };
+  return { path, bucket, stored: true };
 }

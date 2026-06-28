@@ -6,7 +6,7 @@ import {
 import { requireUser } from "../lib/auth.js";
 import { parseBody } from "../lib/validation.js";
 import { PulaCashRepository } from "../services/repository.js";
-import { createIdUploadTarget } from "../services/storage.js";
+import { uploadIdDocument } from "../services/storage.js";
 
 export async function studentRoutes(app: FastifyInstance, repository: PulaCashRepository) {
   app.get("/institutions", async () => repository.listInstitutions());
@@ -17,20 +17,14 @@ export async function studentRoutes(app: FastifyInstance, repository: PulaCashRe
     return repository.upsertProfile(user, input);
   });
 
-  app.post("/student/upload-id", async (request) => {
+  // Larger body limit for the ID image/PDF. The file is uploaded to managed storage
+  // server-side; the client only ever talks to our backend.
+  app.post("/student/upload-id", { bodyLimit: 8 * 1024 * 1024 }, async (request) => {
     const user = requireUser(request, repository);
     const input = parseBody(studentUploadIdSchema, request.body);
-    // The signed upload URL is minted server-side; the service-role key never
-    // leaves the backend. The client PUTs the file to the returned signed URL.
-    const target = await createIdUploadTarget(user.id, input.fileName, request.log);
-    const status = repository.recordIdUpload(user, target.path);
-    return {
-      status,
-      bucket: target.bucket,
-      path: target.path,
-      uploadUrl: target.uploadUrl,
-      token: target.token
-    };
+    const stored = await uploadIdDocument(user.id, input.fileName, input.mimeType, input.content, request.log);
+    const status = repository.recordIdUpload(user, stored.path);
+    return { status, bucket: stored.bucket, path: stored.path, stored: stored.stored };
   });
 
   app.get("/student/dashboard", async (request) => {

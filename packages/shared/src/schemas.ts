@@ -1,9 +1,11 @@
 import { z } from "zod";
 import {
   allowedInstitutionDomains,
+  feedbackCategories,
   loanLifecycle,
   loanPurposes,
   paymentMethods,
+  repaymentPlans,
   repaymentStatuses,
   studentVerificationStatuses,
   subscriptionTiers
@@ -82,8 +84,14 @@ export const studentProfileSchema = z.object({
 export const studentUploadIdSchema = z.object({
   fileName: z.string().trim().min(4).max(180),
   mimeType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
-  sizeBytes: z.number().int().positive().max(5_000_000)
+  sizeBytes: z.number().int().positive().max(5_000_000),
+  // Base64-encoded file bytes. The client uploads to *our* backend, which stores
+  // the document server-side — the app never talks to storage directly. Max length
+  // covers a 5 MB file (~6.7 MB base64) plus headroom.
+  content: z.string().min(1).max(7_500_000)
 });
+
+export const repaymentPlanSchema = z.enum(repaymentPlans);
 
 export const loanApplySchema = z.object({
   // P50–P2,000 (the per-tier ceiling is additionally enforced server-side). The
@@ -92,6 +100,10 @@ export const loanApplySchema = z.object({
   purpose: z.enum(loanPurposes),
   expectedRepaymentDate: z.string().date(),
   disbursementMethod: paymentMethodSchema.optional(),
+  // Bullet = single repayment; installment = monthly plan (PulaCash+, larger loans).
+  // For installment plans the term/schedule are derived server-side from `installments`.
+  repaymentPlan: repaymentPlanSchema.default("bullet"),
+  installments: z.number().int().min(2).max(4).optional(),
   acceptedTerms: z.boolean().refine((value) => value, "Accept the loan terms before submitting.")
 });
 
@@ -113,6 +125,13 @@ export const subscribeSchema = z.object({
 export const paymentWebhookSchema = z.object({
   reference: z.string().min(1).max(200),
   status: z.enum(["settled", "failed"])
+});
+
+export const feedbackCategorySchema = z.enum(feedbackCategories);
+
+export const feedbackCreateSchema = z.object({
+  category: feedbackCategorySchema,
+  message: z.string().trim().min(4).max(1000)
 });
 
 export const adminLoanDecisionSchema = z.object({
@@ -147,7 +166,8 @@ export const userSchema = z.object({
   isBlacklisted: z.boolean(),
   emailVerified: z.boolean().default(false),
   subscriptionTier: subscriptionTierSchema.default("free"),
-  subscriptionRenewsAt: z.string().nullable().default(null)
+  subscriptionRenewsAt: z.string().nullable().default(null),
+  freeLoansUsed: z.number().int().nonnegative().default(0)
 });
 
 export const dashboardSchema = z.object({
@@ -171,7 +191,8 @@ export const dashboardSchema = z.object({
   membership: z.object({
     tier: subscriptionTierSchema,
     renewsAt: z.string().nullable(),
-    limit: z.number()
+    limit: z.number(),
+    freeLoansRemaining: z.number()
   }),
   nudges: z.array(z.string())
 });

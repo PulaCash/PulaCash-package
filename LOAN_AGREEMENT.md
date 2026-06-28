@@ -10,21 +10,25 @@ following.
 
 ## 1. The loan
 PulaCash agrees to disburse the principal amount you request, up to your available
-limit, once your application is approved. A **flat 3% service fee** is added to the
-principal to form the total repayment amount, all disclosed before you accept. There
-are no separate hidden charges on the disclosed amount.
+limit, once your application is approved. A single **service fee** is added to the
+principal to form the total repayment amount; the exact fee, the representative APR,
+and the total are all disclosed before you accept. There are no separate hidden
+charges on the disclosed amount.
 
 ## 2. Cost of credit (APR)
 The representative annual percentage rate (APR), **including all fees, never exceeds
 36%**. The **minimum term is 62 days** — we never require full repayment in 60 days
-or less. A flat 3% fee over a 62-day term is roughly an **18% APR**.
+or less. The fee scales with the term, so a longer plan carries a larger total fee at
+a comparable APR.
 
-## 3. Repayment
-You agree to repay the total repayment amount in full by the due date shown (at least
-62 days from disbursement). The amount charged is **computed by PulaCash from your
-loan and collected through licensed payment rails** — never entered on your device.
-Repaying on time increases your reliability score and unlocks higher limits; late or
-missed repayment lowers it and may make you ineligible for future loans.
+## 3. Repayment plans
+Loans are repaid either in a **single payment** by the due date, or — for eligible
+**PulaCash+** members on larger loans — in **equal monthly installments**. The
+schedule, amounts, and due dates are shown before you accept. Each payment amount is
+**computed by PulaCash from your loan and collected through licensed payment rails** —
+never entered on your device. Repaying on time increases your reliability score and
+unlocks higher limits; late or missed repayment lowers it and may make you ineligible
+for future loans.
 
 ## 4. Eligibility & verification
 Disbursement is conditional on your student email being verified and your student ID

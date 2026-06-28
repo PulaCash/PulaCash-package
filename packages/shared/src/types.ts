@@ -7,12 +7,15 @@ import {
   authVerifyEmailSchema,
   blacklistStudentSchema,
   dashboardSchema,
+  feedbackCategorySchema,
+  feedbackCreateSchema,
   loanApplySchema,
   passwordResetRequestSchema,
   passwordResetSchema,
   paymentMethodSchema,
   paymentWebhookSchema,
   repaymentInitiateSchema,
+  repaymentPlanSchema,
   loanStatusSchema,
   repaymentStatusSchema,
   studentProfileSchema,
@@ -41,6 +44,21 @@ export type BlacklistStudentInput = z.infer<typeof blacklistStudentSchema>;
 export type VerifyStudentInput = z.infer<typeof verifyStudentSchema>;
 export type PaymentMethod = z.infer<typeof paymentMethodSchema>;
 export type SubscriptionTier = z.infer<typeof subscriptionTierSchema>;
+export type RepaymentPlan = z.infer<typeof repaymentPlanSchema>;
+export type FeedbackCategory = z.infer<typeof feedbackCategorySchema>;
+export type FeedbackCreateInput = z.infer<typeof feedbackCreateSchema>;
+
+// Public view of a feedback item — no author PII (first name only, no email/id).
+export type Feedback = {
+  id: string;
+  category: FeedbackCategory;
+  message: string;
+  authorName: string;
+  createdAt: string;
+  voteCount: number;
+  hasVoted: boolean;
+  isMine: boolean;
+};
 export type User = z.infer<typeof userSchema>;
 export type Dashboard = z.infer<typeof dashboardSchema>;
 export type LoanStatus = z.infer<typeof loanStatusSchema>;
@@ -92,6 +110,8 @@ export type Loan = {
   repaymentAmount: number;
   dueDate: string;
   status: LoanStatus;
+  plan: RepaymentPlan;
+  installmentCount: number;
   disbursedAt: string | null;
   createdAt: string;
 };
@@ -105,6 +125,9 @@ export type Repayment = {
   paidAt: string | null;
   status: RepaymentStatus;
   method?: string | null;
+  // 1-based position within an installment plan (1/1 for a bullet loan).
+  installmentNumber?: number;
+  installmentsTotal?: number;
 };
 
 // Result of POST /loans/apply. Approved loans are disbursed through the payment

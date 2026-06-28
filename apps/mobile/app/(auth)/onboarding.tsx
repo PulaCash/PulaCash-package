@@ -104,24 +104,18 @@ export default function OnboardingScreen() {
       const mimeType = ["image/jpeg", "image/png", "application/pdf"].includes(asset.mimeType ?? "")
         ? (asset.mimeType as string)
         : "image/jpeg";
-      const meta = {
+      // Read the local file and base64-encode it, then upload to *our* backend,
+      // which stores it server-side. The app never talks to storage directly.
+      const file = await fetch(asset.uri);
+      const blob = await file.blob();
+      const content = await blobToBase64(blob);
+      const body = {
         fileName: asset.name?.slice(0, 180) || `student-id-${Date.now()}.jpg`,
         mimeType,
-        sizeBytes: Math.max(1, Math.min(asset.size ?? 100000, 5_000_000))
+        sizeBytes: Math.max(1, Math.min(asset.size ?? blob.size ?? 100000, 5_000_000)),
+        content
       };
-      const target = await apiFetch<{ uploadUrl: string | null }>(endpoints.student.uploadId, {
-        method: "POST",
-        body: JSON.stringify(meta)
-      });
-      // When storage is configured the server returns a signed URL; push the bytes.
-      if (target.uploadUrl) {
-        const file = await fetch(asset.uri);
-        const blob = await file.blob();
-        await fetch(target.uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": mimeType } }).catch(
-          () => undefined
-        );
-      }
-      return target;
+      return apiFetch<{ status: string }>(endpoints.student.uploadId, { method: "POST", body: JSON.stringify(body) });
     },
     onSuccess: (result) => {
       if (result === null) return; // user cancelled the picker
@@ -252,6 +246,19 @@ export default function OnboardingScreen() {
       </View>
     </Screen>
   );
+}
+
+/** Read a Blob into base64 (without the data-URL prefix) using the RN FileReader. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Could not read the selected file."));
+    reader.onloadend = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      resolve(result.includes(",") ? result.split(",")[1]! : result);
+    };
+    reader.readAsDataURL(blob);
+  });
 }
 
 function Header({ step, onBack }: { step: number; onBack: () => void }) {

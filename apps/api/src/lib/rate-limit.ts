@@ -29,7 +29,7 @@ export function registerUpstashRateLimit(app: FastifyInstance) {
   });
 
   app.addHook("onRequest", async (request, reply) => {
-    if (request.url === "/health") return;
+    if (request.url === "/health" || request.url === "/webhooks/payments") return;
     const { success, limit, remaining, reset } = await limiter.limit(request.ip);
     reply.header("RateLimit-Limit", limit);
     reply.header("RateLimit-Remaining", Math.max(0, remaining));

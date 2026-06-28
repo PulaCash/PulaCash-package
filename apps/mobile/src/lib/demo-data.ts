@@ -1,11 +1,12 @@
 import {
   AdminDashboard,
   Dashboard,
-  defaultLoanLimits,
+  defaultTermDays,
   Loan,
   LoanApplication,
   LoanApplyInput,
   LoanApplyResult,
+  loanFee,
   Payment,
   Repayment,
   RepaymentResult,
@@ -22,7 +23,8 @@ export const demoUser: User = {
   isBlacklisted: false,
   emailVerified: true,
   subscriptionTier: "plus",
-  subscriptionRenewsAt: "2026-07-28"
+  subscriptionRenewsAt: "2026-07-28",
+  freeLoansUsed: 0
 };
 
 export const demoDashboard: Dashboard = {
@@ -46,7 +48,8 @@ export const demoDashboard: Dashboard = {
   membership: {
     tier: "plus",
     renewsAt: "2026-07-28",
-    limit: 2000
+    limit: 2000,
+    freeLoansRemaining: 0
   },
   nudges: ["Repay on time to unlock higher limits."]
 };
@@ -57,10 +60,12 @@ export const demoLoans: Loan[] = [
     applicationId: "e37a7d60-67f6-43cc-bdbc-3dd682674a66",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 600,
-    fee: 18,
-    repaymentAmount: 618,
+    fee: 35,
+    repaymentAmount: 635,
     dueDate: "2026-09-01",
     status: "disbursed",
+    plan: "bullet",
+    installmentCount: 1,
     disbursedAt: "2026-06-30T12:00:00.000Z",
     createdAt: "2026-06-30T12:00:00.000Z"
   },
@@ -69,10 +74,12 @@ export const demoLoans: Loan[] = [
     applicationId: "18dff7b8-6555-41e1-9f7b-9e942e8bf585",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 200,
-    fee: 6,
-    repaymentAmount: 206,
+    fee: 12,
+    repaymentAmount: 212,
     dueDate: "2026-05-24",
     status: "repaid",
+    plan: "bullet",
+    installmentCount: 1,
     disbursedAt: "2026-05-10T12:00:00.000Z",
     createdAt: "2026-05-10T12:00:00.000Z"
   }
@@ -156,7 +163,7 @@ export function createDemoLoanApplyResult(input: LoanApplyInput): LoanApplyResul
     status: "approved",
     createdAt: new Date().toISOString()
   };
-  const fee = Math.round(input.amount * defaultLoanLimits.feeRate);
+  const fee = loanFee(input.amount, defaultTermDays);
   const loan: Loan = {
     id: demoUuid(),
     applicationId: application.id,
@@ -166,6 +173,8 @@ export function createDemoLoanApplyResult(input: LoanApplyInput): LoanApplyResul
     repaymentAmount: input.amount + fee,
     dueDate: input.expectedRepaymentDate,
     status: "disbursed",
+    plan: "bullet",
+    installmentCount: 1,
     disbursedAt: new Date().toISOString(),
     createdAt: new Date().toISOString()
   };
@@ -177,7 +186,9 @@ export function createDemoLoanApplyResult(input: LoanApplyInput): LoanApplyResul
     dueDate: loan.dueDate,
     paidAt: null,
     status: "scheduled",
-    method: null
+    method: null,
+    installmentNumber: 1,
+    installmentsTotal: 1
   };
   const payment: Payment = {
     id: demoUuid(),
