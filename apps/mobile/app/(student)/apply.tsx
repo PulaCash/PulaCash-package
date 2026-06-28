@@ -1,7 +1,8 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { router } from "expo-router";
-import { CalendarDays, Check, ReceiptText, Sparkles } from "lucide-react-native";
+import { CalendarDays, Check, Layers, ReceiptText, Sparkles } from "lucide-react-native";
+import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { ActivityIndicator, Pressable, Text, TextInput, View } from "react-native";
 import {
@@ -10,9 +11,12 @@ import {
   defaultBorrowAmount,
   defaultLoanLimits,
   defaultTermDays,
+  installmentSchedule,
+  installmentTermDays,
   Loan,
   LoanApplyResult,
   loanApplySchema,
+  loanFee,
   loanPurposes,
   membership,
   tierLimit
@@ -29,7 +33,6 @@ import { useMe } from "@/lib/useMe";
 import { colors, control as controlTokens, iconSize, radius, SECTION_GAP } from "@/theme/tokens";
 
 type LoanForm = z.infer<typeof loanApplySchema>;
-const presets = [200, 500, 1000, 2000];
 const defaultRepaymentDate = () => new Date(Date.now() + defaultTermDays * 86_400_000).toISOString().slice(0, 10);
 
 export default function ApplyScreen() {
@@ -37,6 +40,10 @@ export default function ApplyScreen() {
   const me = useMe();
   const tier = me.data?.subscriptionTier ?? "free";
   const limit = tierLimit(tier);
+  const presets = tier === "plus" ? [300, 1000, 1500, 2000] : [100, 200, 300];
+
+  const [plan, setPlan] = useState<"bullet" | "installment">("bullet");
+  const [installments, setInstallments] = useState(3);
 
   const { control, handleSubmit, watch, setValue, formState } = useForm<LoanForm>({
     resolver: zodResolver(loanApplySchema),
@@ -44,23 +51,41 @@ export default function ApplyScreen() {
       amount: defaultBorrowAmount,
       purpose: "Books and supplies",
       expectedRepaymentDate: defaultRepaymentDate(),
-      // Explicit opt-in: the borrower must actively accept the loan agreement.
+      repaymentPlan: "bullet",
       acceptedTerms: false
     }
   });
   const amount = watch("amount");
   const repaymentDate = watch("expectedRepaymentDate");
   const acceptedTerms = watch("acceptedTerms");
-  const fee = Math.round(amount * defaultLoanLimits.feeRate);
+
+  // Installment plans are a PulaCash+ feature for larger loans.
+  const installmentEligible = tier === "plus" && amount >= defaultLoanLimits.installmentMinAmount;
+  const effectivePlan = plan === "installment" && installmentEligible ? "installment" : "bullet";
+
+  const bulletTerm = Math.round((Date.parse(repaymentDate) - Date.now()) / 86_400_000);
+  const termDays = effectivePlan === "installment" ? installmentTermDays(installments) : bulletTerm;
+  const safeTerm = Number.isFinite(termDays) && termDays > 0 ? termDays : defaultTermDays;
+  const fee = loanFee(amount, safeTerm);
   const repayment = amount + fee;
-  const termDays = Math.round((Date.parse(repaymentDate) - Date.now()) / 86_400_000);
-  const apr = Number.isFinite(termDays) && termDays > 0 ? computeApr(fee, amount, termDays) : 0;
+  const apr = computeApr(fee, amount, safeTerm);
+  const schedule = effectivePlan === "installment" ? installmentSchedule(repayment, installments) : [];
+
+  // Funnel gates (also enforced server-side).
+  const freeRemaining = tier === "plus" ? Infinity : Math.max(0, defaultLoanLimits.freeLoanAllowance - (me.data?.freeLoansUsed ?? 0));
   const overLimit = amount > limit;
+  const noFreeLoans = tier !== "plus" && freeRemaining <= 0;
+  const blocked = overLimit || noFreeLoans;
 
   const apply = useMutation({
     mutationFn: (input: LoanForm) => {
-      if (demoAuthBypassEnabled) return Promise.resolve(createDemoLoanApplyResult(input));
-      return apiFetch<LoanApplyResult>(endpoints.loans.apply, { method: "POST", body: JSON.stringify(input) });
+      const body: LoanForm = {
+        ...input,
+        repaymentPlan: effectivePlan,
+        installments: effectivePlan === "installment" ? installments : undefined
+      };
+      if (demoAuthBypassEnabled) return Promise.resolve(createDemoLoanApplyResult(body));
+      return apiFetch<LoanApplyResult>(endpoints.loans.apply, { method: "POST", body: JSON.stringify(body) });
     },
     onSuccess: async (result) => {
       if (result.status === "disbursed") {
@@ -79,9 +104,7 @@ export default function ApplyScreen() {
           }
         }));
       }
-      if (!demoAuthBypassEnabled) {
-        await queryClient.invalidateQueries();
-      }
+      if (!demoAuthBypassEnabled) await queryClient.invalidateQueries();
       if (result.status === "disbursed") {
         router.replace({ pathname: "/loan-status", params: { id: result.loan.id } });
       } else {
@@ -94,7 +117,9 @@ export default function ApplyScreen() {
     <Screen>
       <TopBar back title="Request loan" />
       <Text className="text-4xl font-extrabold text-pula-ink">Choose your support</Text>
-      <Text className="mt-3 text-base leading-6 text-pula-muted">Small emergency loans with a clear repayment summary.</Text>
+      <Text className="mt-3 text-base leading-6 text-pula-muted">
+        {tier === "plus" ? "Borrow up to P2,000 with instant payout." : `Free students borrow up to P${limit}.`}
+      </Text>
 
       <GlassCard className="mt-7">
         <Text className="text-sm font-bold uppercase text-pula-muted">Loan amount</Text>
@@ -109,9 +134,7 @@ export default function ApplyScreen() {
                 style={{ borderRadius: radius.md, backgroundColor: selected ? colors.blue : colors.mist }}
                 onPress={() => setValue("amount", value, { shouldValidate: true })}
               >
-                <Text className="font-bold" style={{ color: selected ? colors.white : colors.blue }}>
-                  P{value}
-                </Text>
+                <Text className="font-bold" style={{ color: selected ? colors.white : colors.blue }}>P{value}</Text>
               </Pressable>
             );
           })}
@@ -154,17 +177,10 @@ export default function ApplyScreen() {
                   <Pressable
                     key={purpose}
                     className="flex-row items-center justify-between px-4 py-4"
-                    style={{
-                      borderRadius: radius.md,
-                      backgroundColor: selected ? colors.blueSoft : colors.mist,
-                      borderWidth: 1,
-                      borderColor: selected ? colors.blue : "transparent"
-                    }}
+                    style={{ borderRadius: radius.md, backgroundColor: selected ? colors.blueSoft : colors.mist, borderWidth: 1, borderColor: selected ? colors.blue : "transparent" }}
                     onPress={() => onChange(purpose)}
                   >
-                    <Text className="font-semibold" style={{ color: selected ? colors.blue : colors.ink }}>
-                      {purpose}
-                    </Text>
+                    <Text className="font-semibold" style={{ color: selected ? colors.blue : colors.ink }}>{purpose}</Text>
                     {selected ? <Check color={colors.blue} size={iconSize.sm} /> : null}
                   </Pressable>
                 );
@@ -174,25 +190,56 @@ export default function ApplyScreen() {
         />
       </GlassCard>
 
-      <GlassCard className="mt-5">
-        <View className="flex-row items-center gap-3">
-          <CalendarDays color={colors.blue} size={iconSize.md} />
-          <View className="flex-1">
-            <Text className="text-sm font-bold uppercase text-pula-muted">Expected repayment date</Text>
-            <Controller
-              control={control}
-              name="expectedRepaymentDate"
-              render={({ field: { value, onChange } }) => (
-                <TextInput
-                  value={value}
-                  onChangeText={onChange}
-                  placeholder="YYYY-MM-DD"
-                  className="mt-1 text-lg font-extrabold text-pula-ink"
-                />
-              )}
-            />
-          </View>
+      {/* Repayment plan: single payment, or (PulaCash+, larger loans) a monthly plan. */}
+      <GlassCard className="mt-5" contentClassName="gap-3">
+        <Text className="text-sm font-bold uppercase text-pula-muted">Repayment plan</Text>
+        <View className="flex-row gap-3">
+          <PlanOption label="Single payment" icon={<CalendarDays color={effectivePlan === "bullet" ? colors.white : colors.blue} size={iconSize.sm} />} active={effectivePlan === "bullet"} onPress={() => setPlan("bullet")} />
+          <PlanOption
+            label="Monthly plan"
+            icon={<Layers color={effectivePlan === "installment" ? colors.white : colors.blue} size={iconSize.sm} />}
+            active={effectivePlan === "installment"}
+            disabled={!installmentEligible}
+            onPress={() => (installmentEligible ? setPlan("installment") : undefined)}
+          />
         </View>
+        {!installmentEligible ? (
+          <Text className="text-xs font-semibold text-pula-muted">
+            Monthly plans are a PulaCash+ feature for loans of P{defaultLoanLimits.installmentMinAmount}+.
+          </Text>
+        ) : null}
+
+        {effectivePlan === "installment" ? (
+          <View className="mt-1 flex-row gap-2.5">
+            {(defaultLoanLimits.installmentCounts as readonly number[]).map((count) => {
+              const selected = installments === count;
+              return (
+                <Pressable
+                  key={count}
+                  className="h-11 flex-1 items-center justify-center"
+                  style={{ borderRadius: radius.md, backgroundColor: selected ? colors.blue : colors.mist }}
+                  onPress={() => setInstallments(count)}
+                >
+                  <Text className="font-bold" style={{ color: selected ? colors.white : colors.blue }}>{count} months</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : (
+          <View className="flex-row items-center gap-3">
+            <CalendarDays color={colors.blue} size={iconSize.md} />
+            <View className="flex-1">
+              <Text className="text-sm font-bold uppercase text-pula-muted">Repayment date</Text>
+              <Controller
+                control={control}
+                name="expectedRepaymentDate"
+                render={({ field: { value, onChange } }) => (
+                  <TextInput value={value} onChangeText={onChange} placeholder="YYYY-MM-DD" className="mt-1 text-lg font-extrabold text-pula-ink" />
+                )}
+              />
+            </View>
+          </View>
+        )}
       </GlassCard>
 
       <GlassCard className="mt-5">
@@ -201,33 +248,45 @@ export default function ApplyScreen() {
           <Text className="text-lg font-extrabold text-pula-ink">Repayment summary</Text>
         </View>
         <SummaryRow label="Amount requested" value={`P${amount}.00`} />
-        <SummaryRow label="Service fee (3%)" value={`P${fee}.00`} />
-        <SummaryRow label="Repayment amount" value={`P${repayment}.00`} strong />
+        <SummaryRow label="Service fee" value={`P${fee}.00`} />
+        <SummaryRow label="Total repayment" value={`P${repayment}.00`} strong />
         <SummaryRow label="Representative APR" value={`${(apr * 100).toFixed(1)}%`} />
-        <SummaryRow label="Repayment term" value={`${termDays} days`} />
-        <Text className="mt-4 text-sm font-semibold text-pula-blue">
-          No hidden fees. Repay the full P{repayment}.00 by {repaymentDate}.
-        </Text>
+        <SummaryRow label="Term" value={`${safeTerm} days`} />
+        {effectivePlan === "installment" ? (
+          <Text className="mt-4 text-sm font-semibold text-pula-blue">
+            {installments} monthly payments of about P{schedule[0]}.00 (APR {(apr * 100).toFixed(1)}%, under the 36% cap).
+          </Text>
+        ) : (
+          <Text className="mt-4 text-sm font-semibold text-pula-blue">
+            One payment of P{repayment}.00 by {repaymentDate}. APR {(apr * 100).toFixed(1)}%.
+          </Text>
+        )}
       </GlassCard>
 
-      {overLimit ? (
+      {blocked ? (
         <Pressable onPress={() => router.push("/membership")}>
           <GlassCard className="mt-5" fill={colors.blue}>
             <View className="flex-row items-center gap-3">
               <Sparkles color={colors.white} size={iconSize.md} />
               <View className="flex-1">
                 <Text className="text-base font-extrabold text-white">
-                  {tier === "plus" ? `The maximum loan is P${limit}.` : `Free accounts borrow up to P${limit}.`}
+                  {tier === "plus"
+                    ? `The maximum loan is P${limit}.`
+                    : noFreeLoans
+                      ? "You've used your free loan."
+                      : `Free accounts borrow up to P${limit}.`}
                 </Text>
                 {tier === "plus" ? null : (
                   <Text className="mt-1 text-sm font-semibold text-white/90">
-                    Upgrade to PulaCash+ (P{membership.plus.priceBwp}/mo) to borrow up to P{membership.plus.limit}.
+                    Join PulaCash+ (P{membership.plus.priceBwp}/mo) to borrow up to P{membership.plus.limit} with monthly plans.
                   </Text>
                 )}
               </View>
             </View>
           </GlassCard>
         </Pressable>
+      ) : tier !== "plus" && freeRemaining > 0 ? (
+        <Text className="mt-5 text-center text-sm font-semibold text-pula-blue">Your first PulaCash loan is on us — up to P{limit}.</Text>
       ) : null}
 
       <Pressable className="mt-5 flex-row items-center gap-3" onPress={() => setValue("acceptedTerms", !acceptedTerms, { shouldValidate: true })}>
@@ -242,23 +301,29 @@ export default function ApplyScreen() {
         </Text>
       </Pressable>
       {formState.errors.acceptedTerms ? <Text className="mt-2 text-sm text-red-500">Accept terms before submitting.</Text> : null}
-      {apply.isError ? (
-        <Text className="mt-3 text-sm font-semibold text-red-500">{(apply.error as Error).message}</Text>
-      ) : null}
+      {apply.isError ? <Text className="mt-3 text-sm font-semibold text-red-500">{(apply.error as Error).message}</Text> : null}
 
       {apply.isPending ? (
         <View className="items-center justify-center bg-pula-blue" style={{ height: controlTokens.height, borderRadius: radius.lg, marginTop: SECTION_GAP }}>
           <ActivityIndicator color={colors.white} />
         </View>
       ) : (
-        <GradientButton
-          label="Submit request"
-          disabled={overLimit}
-          onPress={handleSubmit((input) => apply.mutate(input))}
-          style={{ marginTop: SECTION_GAP }}
-        />
+        <GradientButton label="Submit request" disabled={blocked} onPress={handleSubmit((input) => apply.mutate(input))} style={{ marginTop: SECTION_GAP }} />
       )}
     </Screen>
+  );
+}
+
+function PlanOption({ label, icon, active, disabled, onPress }: { label: string; icon: React.ReactNode; active: boolean; disabled?: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      className="h-12 flex-1 flex-row items-center justify-center gap-2"
+      style={{ borderRadius: radius.md, backgroundColor: active ? colors.blue : colors.mist, opacity: disabled ? 0.45 : 1 }}
+      onPress={onPress}
+    >
+      {icon}
+      <Text className="font-bold" style={{ color: active ? colors.white : colors.blue }}>{label}</Text>
+    </Pressable>
   );
 }
 

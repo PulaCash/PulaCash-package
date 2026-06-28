@@ -4,16 +4,20 @@ import {
   BlacklistStudentInput,
   Dashboard,
   defaultLoanLimits,
+  installmentSchedule,
+  installmentTermDays,
   Loan,
   LoanApplication,
   LoanApplyInput,
   LoanApplyResult,
+  loanFee,
   membership,
   Payment,
   PaymentKind,
   PaymentMethod,
   PaymentStatus,
   Repayment,
+  RepaymentPlan,
   RepaymentResult,
   scoreBandFor,
   StudentProfileInput,
@@ -175,7 +179,8 @@ export class PulaCashRepository {
       isBlacklisted: false,
       emailVerified: false,
       subscriptionTier: "free",
-      subscriptionRenewsAt: null
+      subscriptionRenewsAt: null,
+      freeLoansUsed: 0
     };
     const passwordHash = await hashPassword(input.password);
     this.users.set(user.id, user);
@@ -410,12 +415,15 @@ export class PulaCashRepository {
       membership: {
         tier: user.subscriptionTier,
         renewsAt: user.subscriptionRenewsAt,
-        limit
+        limit,
+        freeLoansRemaining: freeLoansRemaining(user)
       },
       nudges:
         user.subscriptionTier === "plus"
-          ? ["Repay on time to unlock higher limits.", "Keep your student profile verified."]
-          : ["Upgrade to PulaCash+ for instant payout and a P2,000 limit.", "Repay on time to build your score."]
+          ? ["Use a monthly installment plan on larger loans.", "Repay on time to keep building your score."]
+          : freeLoansRemaining(user) > 0
+            ? ["Your first PulaCash loan is free to start — up to P300.", "Repay on time to build your score."]
+            : ["You've used your free loan — join PulaCash+ to keep borrowing up to P2,000.", "Members get instant payout + installment plans."]
     };
   }
 
@@ -432,25 +440,49 @@ export class PulaCashRepository {
       throw new RepositoryError(403, "Your student ID must be verified before you can borrow.");
     }
 
-    // Tier ceiling: free borrowers up to P500, PulaCash+ up to P2,000.
+    // Free-tier funnel: once the free loan allowance is spent, PulaCash+ is required.
+    if (user.subscriptionTier !== "plus" && freeLoansRemaining(user) <= 0) {
+      throw new RepositoryError(403, "You've used your free PulaCash loan. Join PulaCash+ to keep borrowing.");
+    }
+
+    // Tier ceiling: free borrowers up to P300, PulaCash+ up to P2,000.
     const limit = tierLimit(user.subscriptionTier);
     if (input.amount > limit) {
       throw new RepositoryError(
         403,
         user.subscriptionTier === "plus"
           ? `The maximum loan is P${limit}.`
-          : `Free accounts can borrow up to P${limit}. Upgrade to PulaCash+ to borrow more.`
+          : `Free accounts can borrow up to P${limit}. Upgrade to PulaCash+ to borrow up to P${defaultLoanLimits.plusTierLimit}.`
       );
     }
 
-    // Term must be at least the minimum (Apple: cannot require repayment in <=60
-    // days) and no longer than the maximum.
-    const term = daysBetween(today(), input.expectedRepaymentDate);
-    if (term < defaultLoanLimits.minTermDays) {
-      throw new RepositoryError(400, `Choose a repayment date at least ${defaultLoanLimits.minTermDays} days away.`);
-    }
-    if (term > defaultLoanLimits.maxTermDays) {
-      throw new RepositoryError(400, `The repayment date can be at most ${defaultLoanLimits.maxTermDays} days away.`);
+    const plan: RepaymentPlan = input.repaymentPlan ?? "bullet";
+    let term: number;
+    let installmentCount = 1;
+
+    if (plan === "installment") {
+      // Monthly installment plans are a PulaCash+ feature for larger loans.
+      if (user.subscriptionTier !== "plus") {
+        throw new RepositoryError(403, "Monthly installment plans are a PulaCash+ feature.");
+      }
+      if (input.amount < defaultLoanLimits.installmentMinAmount) {
+        throw new RepositoryError(400, `Installment plans are available on loans of P${defaultLoanLimits.installmentMinAmount} or more.`);
+      }
+      installmentCount = input.installments ?? 3;
+      if (!(defaultLoanLimits.installmentCounts as readonly number[]).includes(installmentCount)) {
+        throw new RepositoryError(400, "Choose 2, 3, or 4 monthly installments.");
+      }
+      // Term/schedule are derived server-side; the client's date is ignored here.
+      term = installmentTermDays(installmentCount);
+    } else {
+      // Bullet loan: a single repayment on a client-chosen date within the term bounds.
+      term = daysBetween(today(), input.expectedRepaymentDate);
+      if (term < defaultLoanLimits.minTermDays) {
+        throw new RepositoryError(400, `Choose a repayment date at least ${defaultLoanLimits.minTermDays} days away.`);
+      }
+      if (term > defaultLoanLimits.maxBulletTermDays) {
+        throw new RepositoryError(400, `A single-repayment loan can be at most ${defaultLoanLimits.maxBulletTermDays} days. Use an installment plan for longer.`);
+      }
     }
 
     const activeLoan = [...this.loans.values()].some(
@@ -458,13 +490,15 @@ export class PulaCashRepository {
     );
     if (activeLoan) throw new RepositoryError(409, "Repay your active loan before applying again.");
 
+    const dueDate = new Date(Date.now() + term * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const instant = input.amount <= defaultLoanLimits.autoApproveThreshold;
     const application: LoanApplication = {
       id: id(),
       studentId: user.id,
       amount: input.amount,
       purpose: input.purpose,
-      expectedRepaymentDate: input.expectedRepaymentDate,
+      // Final due date is server-computed (= now + term) so it always matches the plan.
+      expectedRepaymentDate: dueDate,
       status: instant ? "approved" : "pending_review",
       createdAt: now()
     };
@@ -472,12 +506,24 @@ export class PulaCashRepository {
     this.persistApplication(application);
 
     if (instant) {
-      const { loan, repayment, payment } = await this.disburseApplication(application, input.disbursementMethod, log);
-      this.log(user, "loan.auto_disburse", "loan", loan.id, { amount: loan.amount, paymentId: payment.id });
+      const { loan, repayment, payment } = await this.disburseApplication(
+        application,
+        { method: input.disbursementMethod, plan, installmentCount, termDays: term },
+        log
+      );
+      // A free-tier borrow consumes one free-loan allowance.
+      if (user.subscriptionTier !== "plus") this.consumeFreeLoan(user);
+      this.log(user, "loan.auto_disburse", "loan", loan.id, { amount: loan.amount, plan, paymentId: payment.id });
       return { status: "disbursed", loan, repayment, payment };
     }
 
     return { status: "pending_review", application };
+  }
+
+  private consumeFreeLoan(user: User) {
+    const next: User = { ...user, freeLoansUsed: user.freeLoansUsed + 1 };
+    this.users.set(user.id, next);
+    this.persistUser(next);
   }
 
   listMyLoans(user: User) {
@@ -498,18 +544,29 @@ export class PulaCashRepository {
     if (loan.status === "repaid") throw new RepositoryError(409, "This loan is already repaid.");
     if (loan.status !== "disbursed") throw new RepositoryError(409, "This loan is not ready for repayment yet.");
 
-    // The amount owed is computed from the loan — never trusted from the client.
+    // Don't allow a second charge while one is still in flight (matters for the
+    // async http provider; the simulated provider settles synchronously).
+    const inFlight = [...this.payments.values()].some(
+      (payment) => payment.loanId === loan.id && payment.kind === "repayment" && payment.status === "pending"
+    );
+    if (inFlight) throw new RepositoryError(409, "A repayment for this loan is already being processed.");
+
+    // Charge the next unpaid installment — the amount is computed from the loan's
+    // own schedule, never trusted from the client.
+    const installment = this.nextUnpaidInstallment(loan.id);
+    if (!installment) throw new RepositoryError(409, "There is nothing left to repay on this loan.");
+
     const profile = this.profiles.get(user.id);
     const payment = await this.createPayment(
-      { user, kind: "repayment", amount: loan.repaymentAmount, loanId: loan.id, method, account: profile?.phoneNumber },
+      { user, kind: "repayment", amount: installment.amount, loanId: loan.id, method, account: profile?.phoneNumber },
       log
     );
 
     if (payment.status === "settled") {
-      this.applyRepaymentSettlement(loan, payment);
+      this.settleInstallment(loan, installment, payment);
     }
 
-    const repayment = this.repaymentForLoan(loan.id) ?? this.ensureRepaymentRow(loan);
+    const repayment = this.repayments.get(installment.id) ?? installment;
     const current = this.loans.get(loan.id) ?? loan;
     return { repayment, payment, loanStatus: current.status };
   }
@@ -631,12 +688,16 @@ export class PulaCashRepository {
    */
   private async disburseApplication(
     application: LoanApplication,
-    method: PaymentMethod | undefined,
+    options: { method?: PaymentMethod; plan?: RepaymentPlan; installmentCount?: number; termDays?: number } = {},
     log: FastifyBaseLogger
   ): Promise<{ loan: Loan; repayment: Repayment; payment: Payment }> {
     const student = this.users.get(application.studentId)!;
     const profile = this.profiles.get(application.studentId);
-    const fee = Math.round(application.amount * defaultLoanLimits.feeRate);
+    const plan: RepaymentPlan = options.plan ?? "bullet";
+    const installmentCount = plan === "installment" ? options.installmentCount ?? 3 : 1;
+    // Fee scales with the term (server is the source of truth for the term).
+    const termDays = options.termDays ?? Math.max(defaultLoanLimits.minTermDays, daysBetween(today(), application.expectedRepaymentDate));
+    const fee = loanFee(application.amount, termDays);
     const loanId = id();
 
     const payment = await this.createPayment(
@@ -645,7 +706,7 @@ export class PulaCashRepository {
         kind: "disbursement",
         amount: application.amount,
         loanId,
-        method: method ?? "orange_money",
+        method: options.method ?? "orange_money",
         account: profile?.phoneNumber
       },
       log
@@ -661,24 +722,62 @@ export class PulaCashRepository {
       repaymentAmount: application.amount + fee,
       dueDate: application.expectedRepaymentDate,
       status: settled ? "disbursed" : "approved",
+      plan,
+      installmentCount,
       disbursedAt: settled ? now() : null,
       createdAt: now()
     };
-    const repayment: Repayment = {
-      id: id(),
-      loanId: loan.id,
-      studentId: loan.studentId,
-      amount: loan.repaymentAmount,
-      dueDate: loan.dueDate,
-      paidAt: null,
-      status: loan.dueDate <= today() ? "due" : "scheduled",
-      method: null
-    };
     this.loans.set(loan.id, loan);
     this.persistLoan(loan);
-    this.repayments.set(repayment.id, repayment);
-    this.persistRepayment(repayment);
-    return { loan, repayment, payment };
+
+    const schedule = this.buildSchedule(loan);
+    return { loan, repayment: schedule[0]!, payment };
+  }
+
+  /** Generate the repayment schedule for a loan (1 row for bullet, N for installment). */
+  private buildSchedule(loan: Loan): Repayment[] {
+    const count = loan.plan === "installment" ? Math.max(2, loan.installmentCount) : 1;
+    const rows: Repayment[] = [];
+    if (count === 1) {
+      const r: Repayment = {
+        id: id(),
+        loanId: loan.id,
+        studentId: loan.studentId,
+        amount: loan.repaymentAmount,
+        dueDate: loan.dueDate,
+        paidAt: null,
+        status: loan.dueDate <= today() ? "due" : "scheduled",
+        method: null,
+        installmentNumber: 1,
+        installmentsTotal: 1
+      };
+      this.repayments.set(r.id, r);
+      this.persistRepayment(r);
+      return [r];
+    }
+    const amounts = installmentSchedule(loan.repaymentAmount, count);
+    const start = Date.now();
+    for (let i = 0; i < count; i += 1) {
+      const dueDate = new Date(start + (i + 1) * defaultLoanLimits.installmentPeriodDays * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const r: Repayment = {
+        id: id(),
+        loanId: loan.id,
+        studentId: loan.studentId,
+        amount: amounts[i]!,
+        dueDate,
+        paidAt: null,
+        status: i === 0 && dueDate <= today() ? "due" : "scheduled",
+        method: null,
+        installmentNumber: i + 1,
+        installmentsTotal: count
+      };
+      this.repayments.set(r.id, r);
+      this.persistRepayment(r);
+      rows.push(r);
+    }
+    return rows;
   }
 
   // --- Payments & settlement ---
@@ -750,7 +849,8 @@ export class PulaCashRepository {
       }
     } else if (payment.kind === "repayment" && payment.loanId) {
       const loan = this.loans.get(payment.loanId);
-      if (loan && loan.status !== "repaid") this.applyRepaymentSettlement(loan, updated);
+      const installment = this.nextUnpaidInstallment(payment.loanId);
+      if (loan && installment && loan.status !== "repaid") this.settleInstallment(loan, installment, updated);
     } else if (payment.kind === "subscription") {
       const user = this.users.get(payment.userId);
       if (user) this.activatePlus(user);
@@ -758,48 +858,27 @@ export class PulaCashRepository {
     return { ok: true };
   }
 
-  private applyRepaymentSettlement(loan: Loan, payment: Payment) {
-    const onTime = today() <= loan.dueDate;
-    const existing = this.repaymentForLoan(loan.id);
-    const repayment: Repayment = existing
-      ? { ...existing, status: "paid", paidAt: now(), method: payment.provider }
-      : {
-          id: id(),
-          loanId: loan.id,
-          studentId: loan.studentId,
-          amount: loan.repaymentAmount,
-          dueDate: loan.dueDate,
-          paidAt: now(),
-          status: "paid",
-          method: payment.provider
-        };
-    this.repayments.set(repayment.id, repayment);
-    this.persistRepayment(repayment);
-
-    const repaidLoan: Loan = { ...loan, status: "repaid" };
-    this.loans.set(loan.id, repaidLoan);
-    this.persistLoan(repaidLoan);
-    this.updateScoreAfterRepayment(loan.studentId, onTime);
+  /** The earliest unpaid installment for a loan (lowest installment number). */
+  private nextUnpaidInstallment(loanId: string): Repayment | undefined {
+    return [...this.repayments.values()]
+      .filter((repayment) => repayment.loanId === loanId && repayment.status !== "paid")
+      .sort((a, b) => (a.installmentNumber ?? 1) - (b.installmentNumber ?? 1))[0];
   }
 
-  private repaymentForLoan(loanId: string): Repayment | undefined {
-    return [...this.repayments.values()].find((repayment) => repayment.loanId === loanId);
-  }
+  /** Mark one installment paid; if it was the last, close the loan and score it. */
+  private settleInstallment(loan: Loan, installment: Repayment, payment: Payment) {
+    const paid: Repayment = { ...installment, status: "paid", paidAt: now(), method: payment.provider };
+    this.repayments.set(paid.id, paid);
+    this.persistRepayment(paid);
 
-  private ensureRepaymentRow(loan: Loan): Repayment {
-    const repayment: Repayment = {
-      id: id(),
-      loanId: loan.id,
-      studentId: loan.studentId,
-      amount: loan.repaymentAmount,
-      dueDate: loan.dueDate,
-      paidAt: null,
-      status: loan.dueDate <= today() ? "due" : "scheduled",
-      method: null
-    };
-    this.repayments.set(repayment.id, repayment);
-    this.persistRepayment(repayment);
-    return repayment;
+    // Recompute after marking this one paid: if nothing is left, the loan is repaid.
+    if (!this.nextUnpaidInstallment(loan.id)) {
+      const repaidLoan: Loan = { ...loan, status: "repaid" };
+      this.loans.set(loan.id, repaidLoan);
+      this.persistLoan(repaidLoan);
+      const onTime = today() <= installment.dueDate;
+      this.updateScoreAfterRepayment(loan.studentId, onTime);
+    }
   }
 
   private savePayment(payment: Payment) {
@@ -915,7 +994,7 @@ export class PulaCashRepository {
     const passwordHash = this.passwordByUser.get(user.id) ?? null;
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO users (id, email, full_name, role, is_blacklisted, password_hash, email_verified, subscription_tier, subscription_renews_at, deleted_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT deleted_at FROM users WHERE id = ?), COALESCE((SELECT created_at FROM users WHERE id = ?), ?))"
+        "INSERT OR REPLACE INTO users (id, email, full_name, role, is_blacklisted, password_hash, email_verified, subscription_tier, subscription_renews_at, free_loans_used, deleted_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT deleted_at FROM users WHERE id = ?), COALESCE((SELECT created_at FROM users WHERE id = ?), ?))"
       )
       .run(
         user.id,
@@ -927,6 +1006,7 @@ export class PulaCashRepository {
         user.emailVerified ? 1 : 0,
         user.subscriptionTier,
         user.subscriptionRenewsAt ?? null,
+        user.freeLoansUsed,
         user.id,
         user.id,
         now()
@@ -1002,7 +1082,7 @@ export class PulaCashRepository {
   private persistLoan(loan: Loan) {
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO loans (id, application_id, student_id, amount, fee, repayment_amount, due_date, status, disbursed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT OR REPLACE INTO loans (id, application_id, student_id, amount, fee, repayment_amount, due_date, status, plan, installment_count, disbursed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       )
       .run(
         loan.id,
@@ -1013,6 +1093,8 @@ export class PulaCashRepository {
         loan.repaymentAmount,
         loan.dueDate,
         loan.status,
+        loan.plan,
+        loan.installmentCount,
         loan.disbursedAt ?? null,
         loan.createdAt
       );
@@ -1021,7 +1103,7 @@ export class PulaCashRepository {
   private persistRepayment(repayment: Repayment) {
     this.db
       .prepare(
-        "INSERT OR REPLACE INTO repayments (id, loan_id, student_id, amount, due_date, status, method, paid_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM repayments WHERE id = ?), ?))"
+        "INSERT OR REPLACE INTO repayments (id, loan_id, student_id, amount, due_date, status, method, paid_at, installment_number, installments_total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM repayments WHERE id = ?), ?))"
       )
       .run(
         repayment.id,
@@ -1032,6 +1114,8 @@ export class PulaCashRepository {
         repayment.status,
         repayment.method ?? null,
         repayment.paidAt ?? null,
+        repayment.installmentNumber ?? 1,
+        repayment.installmentsTotal ?? 1,
         repayment.id,
         now()
       );
@@ -1060,7 +1144,8 @@ export class PulaCashRepository {
         isBlacklisted: Boolean(row.is_blacklisted),
         emailVerified: Boolean(row.email_verified),
         subscriptionTier: (row.subscription_tier as SubscriptionTier) ?? "free",
-        subscriptionRenewsAt: row.subscription_renews_at ?? null
+        subscriptionRenewsAt: row.subscription_renews_at ?? null,
+        freeLoansUsed: row.free_loans_used ?? 0
       };
       this.users.set(user.id, user);
       this.usersByEmail.set(user.email, user.id);
@@ -1125,6 +1210,8 @@ export class PulaCashRepository {
         repaymentAmount: row.repayment_amount,
         dueDate: row.due_date,
         status: row.status,
+        plan: (row.plan as RepaymentPlan) ?? "bullet",
+        installmentCount: row.installment_count ?? 1,
         disbursedAt: row.disbursed_at ?? null,
         createdAt: row.created_at
       });
@@ -1138,7 +1225,9 @@ export class PulaCashRepository {
         dueDate: row.due_date,
         paidAt: row.paid_at ?? null,
         status: row.status,
-        method: row.method ?? null
+        method: row.method ?? null,
+        installmentNumber: row.installment_number ?? 1,
+        installmentsTotal: row.installments_total ?? 1
       });
     }
     for (const row of this.db.prepare("SELECT * FROM reliability_scores").all() as any[]) {
@@ -1193,7 +1282,8 @@ export class PulaCashRepository {
       isBlacklisted: false,
       emailVerified: true,
       subscriptionTier: "free",
-      subscriptionRenewsAt: null
+      subscriptionRenewsAt: null,
+      freeLoansUsed: 0
     };
     this.users.set(admin.id, admin);
     this.usersByEmail.set(admin.email, admin.id);
@@ -1211,9 +1301,10 @@ export class PulaCashRepository {
         role: "student",
         isBlacklisted: false,
         emailVerified: true,
-        // On PulaCash+ so the dev fixture can exercise the full P2,000 limit.
+        // On PulaCash+ so the dev fixture can exercise the full P2,000 limit + plans.
         subscriptionTier: "plus",
-        subscriptionRenewsAt: new Date(Date.now() + membership.plus.periodDays * 24 * 60 * 60 * 1000).toISOString()
+        subscriptionRenewsAt: new Date(Date.now() + membership.plus.periodDays * 24 * 60 * 60 * 1000).toISOString(),
+        freeLoansUsed: 0
       };
       this.users.set(student.id, student);
       this.usersByEmail.set(student.email, student.id);
@@ -1247,7 +1338,9 @@ export class PulaCashRepository {
         studentId: student.id,
         amount: 600,
         purpose: "Books and supplies",
-        expectedRepaymentDate: "2026-07-15",
+        expectedRepaymentDate: new Date(Date.now() + defaultLoanLimits.minTermDays * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .slice(0, 10),
         status: "pending_review",
         createdAt: now()
       };
@@ -1273,4 +1366,10 @@ function initials(name: string) {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
+}
+
+/** Remaining free-tier loans for a student (PulaCash+ borrows are unlimited). */
+function freeLoansRemaining(user: User): number {
+  if (user.subscriptionTier === "plus") return 0;
+  return Math.max(0, defaultLoanLimits.freeLoanAllowance - user.freeLoansUsed);
 }

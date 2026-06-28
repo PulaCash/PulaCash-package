@@ -41,24 +41,29 @@ wired for future production adapters.
 3. Student **uploads a student ID**; an **admin verifies it** (the KYC step). Email + ID together
    form a two-step identity gate that must be cleared before any money can move.
 4. Dashboard shows the borrowing summary, active loan, and reliability score for the real user.
-5. Student requests a loan (e.g. **P500**). A **flat 3% service fee** is added (P500 → repay P515) over a
-   **≥62-day term**, and the **APR (~18%, capped at 36%) is disclosed** before acceptance.
-   - The loan is **disbursed through the payment rails**; free accounts borrow up to **P500**, PulaCash+
-     up to **P2,000**.
-6. Student repays the loan. The amount owed is **computed and collected server-side** (never set on the
-   device); the reliability score updates based on on-time payment.
+5. Student requests a loan. A **term-scaled service fee** (priced near, but always under, Apple's 36% APR
+   cap) is added over a **≥62-day term**, and the **fee, APR, and total are disclosed** before acceptance.
+   - The loan is **disbursed through the payment rails**. Free accounts get **one P300 loan**; PulaCash+
+     borrows up to **P2,000**, unlimited, with optional **monthly installment plans**.
+6. Student repays — a single payment, or monthly installments. The amount owed is **computed and collected
+   server-side** (never set on the device); the reliability score updates based on on-time payment.
 
 The UI uses a minimalist white / light-blue design with soft rounded glass cards.
 
 ## Monetization & APR compliance
 
 PulaCash is **Apple App Review-compliant** (Guideline 3.2.2): the loan's all-in **APR never exceeds 36%**
-and the **term is always ≥ 62 days** (full repayment is never required in 60 days or less). The business
-stays profitable via an optional **PulaCash+ membership (P49/month)** — a financial-service subscription
-billed through the payment rails (**not** Apple IAP), which unlocks instant disbursement and the higher
-P2,000 limit. Subscription revenue is near-pure margin, so blended with the 3% loan fee on a low-default,
-verified-student book the model targets a **>70% margin** while keeping the loan itself low-cost to the
-student.
+(the fee is term-scaled and hard-clamped under a safety ceiling so rounding can't breach the cap) and the
+**term is always ≥ 62 days** (full repayment is never required in 60 days or less). Two compliant revenue
+levers drive a **>70% margin**:
+
+1. **Term-scaled loan fee** — priced toward a target APR (default ~34%, tunable via `targetApr` in
+   `packages/shared/src/constants.ts`), so each loan earns close to the compliant ceiling and longer
+   **installment** plans earn proportionally more in absolute fee at a comparable APR.
+2. **PulaCash+ membership (P49/month)** — a financial-service subscription billed through the payment rails
+   (**not** Apple IAP), near-pure margin. The free tier is a deliberately limited on-ramp (**one P300
+   loan**), so any repeat or larger borrower converts to PulaCash+, which also unlocks the higher limit and
+   monthly installment plans.
 
 ## Payments
 

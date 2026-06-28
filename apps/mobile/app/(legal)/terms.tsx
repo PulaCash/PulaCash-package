@@ -16,11 +16,11 @@ export default function TermsScreen() {
         },
         {
           heading: "Loans, fees & repayment",
-          body: "Each approved loan carries a flat 3% service fee disclosed in full, with the representative APR (never above 36%) and a term of at least 62 days, before you accept. You agree to repay the total amount by the due date. Repayments are collected through licensed payment rails for the exact amount owed. Late or missed repayments may reduce your reliability score and affect future eligibility."
+          body: "Each approved loan carries a single service fee disclosed in full, with the representative APR (never above 36%) and a term of at least 62 days, before you accept. Loans are repaid in a single payment or, for eligible PulaCash+ members, in equal monthly installments. Repayments are collected through licensed payment rails for the exact amount owed. Late or missed repayments may reduce your reliability score and affect future eligibility."
         },
         {
-          heading: "PulaCash+ membership",
-          body: "PulaCash+ is an optional paid membership that unlocks instant disbursement and a higher borrowing limit. It is billed monthly through your chosen payment method (not the App Store), renews automatically, and can be cancelled at any time. The membership is a service fee and is separate from the cost of any individual loan."
+          heading: "Free tier & PulaCash+ membership",
+          body: "Free accounts may take a limited number of smaller loans to get started. PulaCash+ is an optional paid membership that unlocks higher borrowing limits, monthly installment plans, and instant disbursement. It is billed monthly through your chosen payment method (not the App Store), renews automatically, and can be cancelled at any time. The membership is a service fee, separate from the cost of any individual loan."
         },
         {
           heading: "Payments",

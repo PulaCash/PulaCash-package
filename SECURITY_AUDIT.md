@@ -37,10 +37,12 @@ resolve the Phase-0 security gates and most of the hardening items:
 The monetization/compliance and payments rework in this release resolves the remaining
 do-not-ship / can't-submit blockers from Phase 1:
 
-- **APP-1 (loan APR/term) — fixed.** Flat **3% fee** + **≥62-day minimum term** ⇒ all-in **APR ~18%,
-  hard-capped under 36%**, and full repayment is never required in ≤60 days. The APR + term are disclosed
-  on the apply screen and in the loan agreement. Profitability is preserved via an optional **PulaCash+
-  membership (P49/mo)** billed off-IAP through the payment rails.
+- **APP-1 (loan APR/term) — fixed.** A **term-scaled fee** (targets ~34% APR, hard-clamped below a safety
+  ceiling so rounding can't breach 36%) + a **≥62-day minimum term** keep the all-in APR under Apple's cap,
+  and full repayment is never required in ≤60 days. APR + term + schedule are disclosed on the apply screen
+  and in the loan agreement. Profit comes from the term-scaled fee **and** an optional **PulaCash+ membership
+  (P49/mo, off-IAP)**; the free tier is a single P300 loan so repeat/larger borrowers convert (v0.4.0).
+  PulaCash+ also unlocks **monthly installment plans** (longer term = more compliant fee, lower default risk).
 - **APP-2 (account deletion) — fixed.** In-app `POST /account/delete` with password re-auth: erases/anonymises
   PII, revokes sessions, frees the email; retained financial records are anonymised.
 - **APP-4 / SEC-H1 (payments + settlement) — fixed.** Real `PaymentProvider` abstraction (simulated default,

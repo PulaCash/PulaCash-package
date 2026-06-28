@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified INTEGER NOT NULL DEFAULT 0,
   subscription_tier TEXT NOT NULL DEFAULT 'free',
   subscription_renews_at TEXT,
+  free_loans_used INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT,
   created_at TEXT NOT NULL
 );
@@ -55,6 +56,8 @@ CREATE TABLE IF NOT EXISTS loans (
   repayment_amount INTEGER NOT NULL,
   due_date TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'approved',
+  plan TEXT NOT NULL DEFAULT 'bullet',
+  installment_count INTEGER NOT NULL DEFAULT 1,
   disbursed_at TEXT,
   created_at TEXT NOT NULL
 );
@@ -68,6 +71,8 @@ CREATE TABLE IF NOT EXISTS repayments (
   status TEXT NOT NULL DEFAULT 'scheduled',
   method TEXT,
   paid_at TEXT,
+  installment_number INTEGER NOT NULL DEFAULT 1,
+  installments_total INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL
 );
 
@@ -143,7 +148,16 @@ function migrate(db: SqliteDb): void {
   if (!userColumns.has("email_verified")) db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
   if (!userColumns.has("subscription_tier")) db.exec("ALTER TABLE users ADD COLUMN subscription_tier TEXT NOT NULL DEFAULT 'free'");
   if (!userColumns.has("subscription_renews_at")) db.exec("ALTER TABLE users ADD COLUMN subscription_renews_at TEXT");
+  if (!userColumns.has("free_loans_used")) db.exec("ALTER TABLE users ADD COLUMN free_loans_used INTEGER NOT NULL DEFAULT 0");
   if (!userColumns.has("deleted_at")) db.exec("ALTER TABLE users ADD COLUMN deleted_at TEXT");
+
+  const loanColumns = columns("loans");
+  if (!loanColumns.has("plan")) db.exec("ALTER TABLE loans ADD COLUMN plan TEXT NOT NULL DEFAULT 'bullet'");
+  if (!loanColumns.has("installment_count")) db.exec("ALTER TABLE loans ADD COLUMN installment_count INTEGER NOT NULL DEFAULT 1");
+
+  const repaymentColumns = columns("repayments");
+  if (!repaymentColumns.has("installment_number")) db.exec("ALTER TABLE repayments ADD COLUMN installment_number INTEGER NOT NULL DEFAULT 1");
+  if (!repaymentColumns.has("installments_total")) db.exec("ALTER TABLE repayments ADD COLUMN installments_total INTEGER NOT NULL DEFAULT 1");
 
   const tokenColumns = columns("auth_tokens");
   if (!tokenColumns.has("expires_at")) db.exec("ALTER TABLE auth_tokens ADD COLUMN expires_at TEXT");
