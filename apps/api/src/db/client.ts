@@ -10,6 +10,11 @@ CREATE TABLE IF NOT EXISTS users (
   full_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'student',
   is_blacklisted INTEGER NOT NULL DEFAULT 0,
+  password_hash TEXT,
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  subscription_tier TEXT NOT NULL DEFAULT 'free',
+  subscription_renews_at TEXT,
+  deleted_at TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -73,9 +78,27 @@ CREATE TABLE IF NOT EXISTS reliability_scores (
   late_repayments INTEGER NOT NULL DEFAULT 0
 );
 
+-- The token column stores the SHA-256 hash of the bearer token, never the raw
+-- value, so a DB leak cannot be replayed. Tokens expire and can be revoked.
 CREATE TABLE IF NOT EXISTS auth_tokens (
   token TEXT PRIMARY KEY,
-  user_id TEXT NOT NULL
+  user_id TEXT NOT NULL,
+  expires_at TEXT,
+  created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  loan_id TEXT,
+  kind TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'BWP',
+  provider TEXT NOT NULL,
+  provider_ref TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT NOT NULL,
+  settled_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -102,5 +125,27 @@ export function createDb(path = resolveDbPath()): SqliteDb {
   const db = new Database(path);
   db.pragma("journal_mode = WAL");
   db.exec(DDL);
+  migrate(db);
   return db;
+}
+
+/**
+ * Idempotent, additive migrations for databases created before a column existed.
+ * `CREATE TABLE IF NOT EXISTS` never alters an existing table, so we add any
+ * missing columns here. Safe to run on every boot.
+ */
+function migrate(db: SqliteDb): void {
+  const columns = (table: string) =>
+    new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+
+  const userColumns = columns("users");
+  if (!userColumns.has("password_hash")) db.exec("ALTER TABLE users ADD COLUMN password_hash TEXT");
+  if (!userColumns.has("email_verified")) db.exec("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0");
+  if (!userColumns.has("subscription_tier")) db.exec("ALTER TABLE users ADD COLUMN subscription_tier TEXT NOT NULL DEFAULT 'free'");
+  if (!userColumns.has("subscription_renews_at")) db.exec("ALTER TABLE users ADD COLUMN subscription_renews_at TEXT");
+  if (!userColumns.has("deleted_at")) db.exec("ALTER TABLE users ADD COLUMN deleted_at TEXT");
+
+  const tokenColumns = columns("auth_tokens");
+  if (!tokenColumns.has("expires_at")) db.exec("ALTER TABLE auth_tokens ADD COLUMN expires_at TEXT");
+  if (!tokenColumns.has("created_at")) db.exec("ALTER TABLE auth_tokens ADD COLUMN created_at TEXT");
 }

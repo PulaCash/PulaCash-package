@@ -15,7 +15,7 @@ import { colors, control, iconSize, radius } from "@/theme/tokens";
 export default function AdminDashboardScreen() {
   const { data } = useQuery({
     queryKey: ["admin-dashboard"],
-    queryFn: () => apiFetch<AdminDashboard>(endpoints.admin.dashboard, { role: "admin" }).catch(() => demoAdminDashboard),
+    queryFn: () => apiFetch<AdminDashboard>(endpoints.admin.dashboard).catch(() => demoAdminDashboard),
     initialData: demoAdminDashboard
   });
 
@@ -27,6 +27,7 @@ export default function AdminDashboardScreen() {
 
       <View className="mt-7 flex-row flex-wrap gap-3">
         <Metric label="Pending" value={data.pendingApplications} icon={<Clock3 color={colors.blue} size={iconSize.md} />} />
+        <Metric label="ID checks" value={data.pendingIdVerifications} icon={<ShieldCheck color={colors.warning} size={iconSize.md} />} />
         <Metric label="Active loans" value={data.activeLoans} icon={<Banknote color={colors.blue} size={iconSize.md} />} />
         <Metric label="Due" value={data.repaymentsDue} icon={<AlertTriangle color={colors.warning} size={iconSize.md} />} />
         <Metric label="Verified" value={data.verifiedStudents} icon={<ShieldCheck color={colors.success} size={iconSize.md} />} />

@@ -6,38 +6,47 @@ import {
   LoanApplication,
   LoanApplyInput,
   LoanApplyResult,
+  Payment,
   Repayment,
+  RepaymentResult,
   User
 } from "@pulacash/shared";
 
-export const demoToken = "demo-student-token";
-export const demoAdminToken = "demo-admin-token";
-
+// Neutral placeholder fixtures used only as an offline fallback for the UI. They
+// contain no real personal data and carry no credentials.
 export const demoUser: User = {
   id: "8a287637-708e-4382-b166-57f2d9b18121",
-  email: "thatayotlhe.tsenang@ub.ac.bw",
-  fullName: "Thatayotlhe Tsenang",
+  email: "demo.student@ub.ac.bw",
+  fullName: "Demo Student",
   role: "student",
-  isBlacklisted: false
+  isBlacklisted: false,
+  emailVerified: true,
+  subscriptionTier: "plus",
+  subscriptionRenewsAt: "2026-07-28"
 };
 
 export const demoDashboard: Dashboard = {
   student: {
     name: demoUser.fullName,
-    initials: "TT",
+    initials: "DS",
     institution: "University of Botswana",
     verificationStatus: "verified"
   },
   borrowing: {
-    available: 600,
-    limit: 600,
-    activeLoanAmount: 750,
-    lastDisbursedAmount: 600,
-    nextDueDate: "2026-07-15"
+    available: 2000,
+    limit: 2000,
+    activeLoanAmount: null,
+    lastDisbursedAmount: null,
+    nextDueDate: null
   },
   reliability: {
     score: 72,
     label: "Good"
+  },
+  membership: {
+    tier: "plus",
+    renewsAt: "2026-07-28",
+    limit: 2000
   },
   nudges: ["Repay on time to unlock higher limits."]
 };
@@ -48,20 +57,20 @@ export const demoLoans: Loan[] = [
     applicationId: "e37a7d60-67f6-43cc-bdbc-3dd682674a66",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 600,
-    fee: 150,
-    repaymentAmount: 750,
-    dueDate: "2026-07-15",
+    fee: 18,
+    repaymentAmount: 618,
+    dueDate: "2026-09-01",
     status: "disbursed",
-    disbursedAt: "2026-06-13T12:00:00.000Z",
-    createdAt: "2026-06-13T12:00:00.000Z"
+    disbursedAt: "2026-06-30T12:00:00.000Z",
+    createdAt: "2026-06-30T12:00:00.000Z"
   },
   {
     id: "71c94799-e1fc-4b1d-99cd-717599219f8e",
     applicationId: "18dff7b8-6555-41e1-9f7b-9e942e8bf585",
     studentId: "8a287637-708e-4382-b166-57f2d9b18121",
     amount: 200,
-    fee: 50,
-    repaymentAmount: 250,
+    fee: 6,
+    repaymentAmount: 206,
     dueDate: "2026-05-24",
     status: "repaid",
     disbursedAt: "2026-05-10T12:00:00.000Z",
@@ -92,6 +101,7 @@ export const demoApplications: LoanApplication[] = [
 
 export const demoAdminDashboard: AdminDashboard = {
   pendingApplications: 2,
+  pendingIdVerifications: 3,
   activeLoans: 8,
   repaymentsDue: 4,
   overdueLoans: 1,
@@ -101,8 +111,8 @@ export const demoAdminDashboard: AdminDashboard = {
 export const demoStudents = [
   {
     id: "8a287637-708e-4382-b166-57f2d9b18121",
-    fullName: "Thatayotlhe Tsenang",
-    email: "thatayotlhe.tsenang@ub.ac.bw",
+    fullName: "Demo Student",
+    email: "demo.student@ub.ac.bw",
     reliability: 72,
     verification: "verified",
     loanCount: 2,
@@ -110,8 +120,8 @@ export const demoStudents = [
   },
   {
     id: "a902aa44-5c32-463e-8781-94a92b2ec0a9",
-    fullName: "Molefe Thato",
-    email: "thato.molefe@ub.ac.bw",
+    fullName: "Sample Borrower",
+    email: "sample.borrower@ub.ac.bw",
     reliability: 64,
     verification: "id_pending",
     loanCount: 1,
@@ -119,8 +129,8 @@ export const demoStudents = [
   },
   {
     id: "e9f7b541-7d08-47ea-a8b4-c13c9a88d32a",
-    fullName: "Naledi Moremi",
-    email: "naledi.moremi@buan.ac.bw",
+    fullName: "Test Applicant",
+    email: "test.applicant@buan.ac.bw",
     reliability: 88,
     verification: "verified",
     loanCount: 4,
@@ -169,12 +179,25 @@ export function createDemoLoanApplyResult(input: LoanApplyInput): LoanApplyResul
     status: "scheduled",
     method: null
   };
+  const payment: Payment = {
+    id: demoUuid(),
+    userId: demoUser.id,
+    loanId: loan.id,
+    kind: "disbursement",
+    amount: loan.amount,
+    currency: "BWP",
+    provider: "simulated",
+    providerRef: `sim_${demoUuid()}`,
+    status: "settled",
+    createdAt: new Date().toISOString(),
+    settledAt: new Date().toISOString()
+  };
 
-  return { status: "disbursed", loan, repayment };
+  return { status: "disbursed", loan, repayment, payment };
 }
 
-export function createDemoRepayment(loan: Loan): Repayment {
-  return {
+export function createDemoRepayment(loan: Loan): RepaymentResult {
+  const repayment: Repayment = {
     id: demoUuid(),
     loanId: loan.id,
     studentId: loan.studentId,
@@ -182,6 +205,20 @@ export function createDemoRepayment(loan: Loan): Repayment {
     dueDate: loan.dueDate,
     paidAt: new Date().toISOString(),
     status: "paid",
-    method: "manual_bank_transfer"
+    method: "simulated"
   };
+  const payment: Payment = {
+    id: demoUuid(),
+    userId: loan.studentId,
+    loanId: loan.id,
+    kind: "repayment",
+    amount: loan.repaymentAmount,
+    currency: "BWP",
+    provider: "simulated",
+    providerRef: `sim_${demoUuid()}`,
+    status: "settled",
+    createdAt: new Date().toISOString(),
+    settledAt: new Date().toISOString()
+  };
+  return { repayment, payment, loanStatus: "repaid" };
 }

@@ -45,7 +45,7 @@ export default function LoanReviewScreen() {
       await refreshAndBack();
       return;
     }
-    await apiFetch(endpoints.admin.approve(application.id), { method: "POST", role: "admin" }).catch(() => undefined);
+    await apiFetch(endpoints.admin.approve(application.id), { method: "POST" }).catch(() => undefined);
     await refreshAndBack();
   }
 
@@ -58,7 +58,6 @@ export default function LoanReviewScreen() {
     }
     await apiFetch(endpoints.admin.reject(application.id), {
       method: "POST",
-      role: "admin",
       body: JSON.stringify({ reason })
     }).catch(() => undefined);
     await refreshAndBack();

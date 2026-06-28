@@ -1,26 +1,14 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { ArrowRight, ShieldCheck, UserRound } from "lucide-react-native";
-import { ActivityIndicator, Pressable, Text, View } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { ArrowRight, BadgeCheck, ShieldCheck, Zap } from "lucide-react-native";
+import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GradientButton } from "@/components/GradientButton";
 import { Screen } from "@/components/Screen";
-import { continueAsDemoStudent } from "@/lib/api";
-import { demoDashboard, demoUser } from "@/lib/demo-data";
 import { colors, control, gradients, iconSize, radius, shadows } from "@/theme/tokens";
 
 export default function WelcomeScreen() {
-  const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
-
-  const demoLogin = useMutation({
-    mutationFn: continueAsDemoStudent,
-    onSuccess: async () => {
-      await queryClient.invalidateQueries();
-      router.replace("/home");
-    }
-  });
 
   return (
     // Drop the bottom safe-area edge so the blue panel bleeds to the physical bottom.
@@ -60,28 +48,27 @@ export default function WelcomeScreen() {
 
           <View className="mt-8 rounded-[30px] bg-white p-5" style={shadows.soft}>
             <View className="flex-row items-center gap-3">
-              <View className="h-14 w-14 items-center justify-center rounded-2xl bg-pula-mist">
-                <UserRound color={colors.blue} size={iconSize.md} />
+              <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
+                <Zap color={colors.blue} size={iconSize.md} />
               </View>
               <View className="min-w-0 flex-1">
-                <Text className="text-base font-extrabold text-pula-ink" numberOfLines={1}>
-                  {demoUser.fullName}
-                </Text>
-                <Text className="mt-1 text-sm font-semibold text-pula-muted" numberOfLines={1}>
-                  {demoDashboard.student.institution}
-                </Text>
+                <Text className="text-base font-extrabold text-pula-ink">Fast emergency loans</Text>
+                <Text className="mt-1 text-sm font-semibold text-pula-muted">Apply once verified — funds on approval</Text>
+              </View>
+            </View>
+            <View className="mt-4 flex-row items-center gap-3">
+              <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
+                <BadgeCheck color={colors.blue} size={iconSize.md} />
+              </View>
+              <View className="min-w-0 flex-1">
+                <Text className="text-base font-extrabold text-pula-ink">Two-step verification</Text>
+                <Text className="mt-1 text-sm font-semibold text-pula-muted">Student email + ID, students only</Text>
               </View>
             </View>
           </View>
 
           <View className="mt-8 gap-3">
-            {demoLogin.isPending ? (
-              <View className="items-center justify-center bg-white" style={{ height: control.height, borderRadius: radius.lg }}>
-                <ActivityIndicator color={colors.blue} />
-              </View>
-            ) : (
-              <GradientButton label="Continue" variant="white" onPress={() => demoLogin.mutate()} />
-            )}
+            <GradientButton label="Sign in" variant="white" onPress={() => router.push("/login")} />
             <Pressable
               accessibilityRole="button"
               className="flex-row items-center justify-center border border-white"
@@ -89,14 +76,10 @@ export default function WelcomeScreen() {
               onPress={() => router.push("/onboarding")}
             >
               <Text className="text-base font-medium text-white">New student? </Text>
-              <Text className="text-base font-extrabold text-white">Set up profile</Text>
+              <Text className="text-base font-extrabold text-white">Create account</Text>
               <ArrowRight color={colors.white} size={iconSize.sm} strokeWidth={2.4} style={{ marginLeft: 6 }} />
             </Pressable>
           </View>
-
-          {demoLogin.isError ? (
-            <Text className="mt-4 text-center text-sm font-semibold text-white">{(demoLogin.error as Error).message}</Text>
-          ) : null}
 
           <View className="mt-7 flex-row items-center justify-center">
             <ShieldCheck color={colors.white} size={iconSize.sm} />

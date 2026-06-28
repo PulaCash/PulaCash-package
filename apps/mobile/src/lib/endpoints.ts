@@ -5,8 +5,20 @@ export const endpoints = {
   auth: {
     register: "/auth/register",
     login: "/auth/login",
+    logout: "/auth/logout",
     verifyEmail: "/auth/verify-email",
+    resendVerification: "/auth/resend-verification",
+    requestPasswordReset: "/auth/request-password-reset",
+    resetPassword: "/auth/reset-password",
     me: "/me"
+  },
+  account: {
+    delete: "/account/delete"
+  },
+  subscriptions: {
+    me: "/subscriptions/me",
+    subscribe: "/subscriptions/subscribe",
+    cancel: "/subscriptions/cancel"
   },
   institutions: "/institutions",
   student: {
@@ -23,6 +35,9 @@ export const endpoints = {
     initiate: "/repayments/initiate",
     mine: "/repayments/me"
   },
+  payments: {
+    mine: "/payments/me"
+  },
   admin: {
     dashboard: "/admin/dashboard",
     loanApplications: "/admin/loan-applications",
@@ -30,6 +45,7 @@ export const endpoints = {
     reject: (id: string) => `/admin/loans/${id}/reject`,
     students: "/admin/students",
     studentById: (id: string) => `/admin/students/${id}`,
+    verifyId: (id: string) => `/admin/students/${id}/verify-id`,
     blacklist: (id: string) => `/admin/students/${id}/blacklist`
   }
 } as const;

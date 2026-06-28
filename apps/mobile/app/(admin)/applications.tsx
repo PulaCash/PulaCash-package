@@ -13,7 +13,7 @@ import { colors, radius } from "@/theme/tokens";
 export default function ApplicationsScreen() {
   const { data } = useQuery({
     queryKey: ["admin-applications"],
-    queryFn: () => apiFetch<LoanApplication[]>(endpoints.admin.loanApplications, { role: "admin" }).catch(() => demoApplications),
+    queryFn: () => apiFetch<LoanApplication[]>(endpoints.admin.loanApplications).catch(() => demoApplications),
     initialData: demoApplications
   });
 
