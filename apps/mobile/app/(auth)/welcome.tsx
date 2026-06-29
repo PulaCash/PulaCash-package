@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { ArrowRight, BadgeCheck, ShieldCheck, Zap } from "lucide-react-native";
+import { ArrowRight, ShieldCheck } from "lucide-react-native";
 import { Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GradientButton } from "@/components/GradientButton";
 import { Screen } from "@/components/Screen";
-import { colors, control, gradients, iconSize, radius, shadows } from "@/theme/tokens";
+import { colors, control, gradients, iconSize, radius } from "@/theme/tokens";
 
 export default function WelcomeScreen() {
   const insets = useSafeAreaInsets();
@@ -25,49 +25,33 @@ export default function WelcomeScreen() {
           colors={gradients.bluePanel}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          className="mt-auto px-8 pt-16"
           style={{
+            // flex:1 (in style, not className — the gradient only honours style)
+            // makes the panel fill all space below the header, so blue reaches the
+            // bottom and mt-auto can push the CTAs down.
+            flex: 1,
             borderTopLeftRadius: 200,
             borderTopRightRadius: 200,
             marginHorizontal: -38,
+            // Bleed the blue 80px past the physical bottom so the safe-area / home
+            // indicator strip is covered — no white showing at the bottom.
+            marginBottom: -80,
             paddingHorizontal: 58,
-            // Bleed past the home indicator; keep content above it.
-            paddingBottom: insets.bottom + 28
+            // Top padding keeps the heading clear of the rounded corners (so it sits
+            // on solid blue, not the white curve).
+            paddingTop: 88,
+            // Offset the bleed; keep the CTAs just above the home indicator.
+            paddingBottom: insets.bottom + 80 + 6
           }}
         >
-          <View className="h-16 w-16 items-center justify-center rounded-2xl bg-white" style={shadows.soft}>
-            <Text className="text-4xl font-extrabold text-pula-blue">P</Text>
-          </View>
-
-          <Text className="mt-7 text-4xl font-extrabold leading-tight text-white">
+          <Text className="text-4xl font-extrabold leading-tight text-white">
             Student money,{"\n"}on demand
           </Text>
           <Text className="mt-4 text-base font-medium leading-6 text-white">
             Emergency microloans for students in Botswana
           </Text>
 
-          <View className="mt-8 rounded-[30px] bg-white p-5" style={shadows.soft}>
-            <View className="flex-row items-center gap-3">
-              <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
-                <Zap color={colors.blue} size={iconSize.md} />
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="text-base font-extrabold text-pula-ink">Fast emergency loans</Text>
-                <Text className="mt-1 text-sm font-semibold text-pula-muted">Apply once verified — funds on approval</Text>
-              </View>
-            </View>
-            <View className="mt-4 flex-row items-center gap-3">
-              <View className="h-12 w-12 items-center justify-center rounded-2xl bg-pula-mist">
-                <BadgeCheck color={colors.blue} size={iconSize.md} />
-              </View>
-              <View className="min-w-0 flex-1">
-                <Text className="text-base font-extrabold text-pula-ink">Two-step verification</Text>
-                <Text className="mt-1 text-sm font-semibold text-pula-muted">Student email + ID, students only</Text>
-              </View>
-            </View>
-          </View>
-
-          <View className="mt-8 gap-3">
+          <View className="mt-auto gap-3">
             <GradientButton label="Sign in" variant="white" onPress={() => router.push("/login")} />
             <Pressable
               accessibilityRole="button"
